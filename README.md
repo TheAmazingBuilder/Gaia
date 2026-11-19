@@ -73,7 +73,10 @@ since 17 Nov 2026).
   "Unresolved reference". **Only `NOTE` resolves for real** (against the
   user's own active notes). No trading data is ever invented.
 - **Database:** schema is `User` + `AuthSession` + the 5 Gaïa models only.
-  Only `DATABASE_URL` is used (no `DIRECT_URL`). `src/lib/db.ts` is a plain
+  `DATABASE_URL` is the pooled runtime connection (Transaction pooler, port
+  6543); `DIRECT_URL` (Session pooler, port 5432) is what Prisma uses for
+  schema changes (`prisma db push`) — added 18 Nov 2026, like Promethe.
+  `src/lib/db.ts` is a plain
   Prisma client — no soft-delete extension (Gaïa handles `deletedAt`
   explicitly, as in Promethe).
 - **i18n:** `messages/en.json` contains only the `gaia.*` subtree plus
@@ -105,15 +108,16 @@ Then open http://localhost:3000, create an account, and write.
 > access; the Next.js server enforces userId scoping in code.
 
 Environment: copy `.env.example` to `.env` and set `DATABASE_URL`
-(Supabase pooler URL, session mode port 6543, or direct port 5432).
+(pooler, port 6543) and `DIRECT_URL` (Session pooler, port 5432, same
+password).
 Never commit `.env` — it is gitignored. No other secret is needed.
 
 ## Verification (18 Nov 2026, build VM)
 
 - `npm install` — 165 packages, OK.
 - `npx prisma generate` — OK (Prisma Client v6.19.3).
-- `npx prisma validate` — schema valid (needs `DATABASE_URL` set, even a
-  placeholder, because the datasource reads it).
+- `npx prisma validate` — schema valid (needs `DATABASE_URL` and `DIRECT_URL`
+  set, even as placeholders, because the datasource reads them).
 - `npx tsc --noEmit` — 0 errors.
 - `npm run build` — OK: `/` and `/gaia` (dynamic), 36 API routes
   (16 `/api/gaia/*` + 16 `/api/v1/gaia/*` + 4 `/api/auth/*`).

@@ -12,15 +12,17 @@
 //  - User carries displayName + timezone directly. In Promethe those live in
 //    a separate Profile table (id === users.id); Gaïa has no Profile table,
 //    the session payload is synthesised from these two columns instead.
-//  - No DIRECT_URL: only DATABASE_URL is used (Supabase pooler URL goes here).
+//  - DIRECT_URL (added 18 Nov 2026, like Promethe): Prisma uses it for DDL
+//    (`prisma db push`); DATABASE_URL stays the pooled runtime connection.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
