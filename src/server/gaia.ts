@@ -30,6 +30,14 @@ import {
 import { builtInTemplates, findBuiltInTemplate, type GaiaBuiltInTemplate } from "@/lib/gaia/templates";
 import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib/gaia/refs";
 import {
+  applyReview,
+  isMasteryLevel,
+  MASTERY_VALUE,
+  moveToMastery,
+  type MasteryLevel,
+  type ReviewQuality,
+} from "@/lib/gaia/spaced-repetition";
+import {
   shouldSnapshot,
   sortVersionsNewestFirst,
   versionsBeyondCap,
@@ -188,6 +196,13 @@ export type GaiaNoteRow = {
   updatedAt: string;
   lastViewedAt: string | null;
   deletedAt: string | null;
+  // Phase 1 — Memory (Heat Memory System + spaced repetition).
+  mastery: MasteryLevel;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  reviewCount: number;
+  easeFactor: number;
+  intervalDays: number;
 };
 
 export type GaiaNoteDTO = {
@@ -204,6 +219,13 @@ export type GaiaNoteDTO = {
   updatedAt: string;
   lastViewedAt: string | null;
   deletedAt: string | null;
+  // Phase 1 — Memory (Heat Memory System + spaced repetition).
+  mastery: MasteryLevel;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  reviewCount: number;
+  easeFactor: number;
+  intervalDays: number;
 };
 
 export type GaiaNoteResponse = {
@@ -324,6 +346,13 @@ const NOTE_LIST_SELECT = {
   updatedAt: true,
   lastViewedAt: true,
   deletedAt: true,
+  // Phase 1 — Memory.
+  mastery: true,
+  lastReviewedAt: true,
+  nextReviewAt: true,
+  reviewCount: true,
+  easeFactor: true,
+  intervalDays: true,
 } as const;
 
 type NoteListRow = Prisma.NoteGetPayload<{ select: typeof NOTE_LIST_SELECT }>;
@@ -354,6 +383,14 @@ function toRow(note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]): Gaia
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
     deletedAt: note.deletedAt?.toISOString() ?? null,
+    // Phase 1 — Memory. Older rows (created before the feature, or
+    // written by a client that predates it) fall back to "fragile".
+    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
+    lastReviewedAt: note.lastReviewedAt?.toISOString() ?? null,
+    nextReviewAt: note.nextReviewAt?.toISOString() ?? null,
+    reviewCount: note.reviewCount,
+    easeFactor: note.easeFactor,
+    intervalDays: note.intervalDays,
   };
 }
 
@@ -372,6 +409,13 @@ function toDTO(note: Note): GaiaNoteDTO {
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
     deletedAt: note.deletedAt?.toISOString() ?? null,
+    // Phase 1 — Memory (same fallback as toRow).
+    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
+    lastReviewedAt: note.lastReviewedAt?.toISOString() ?? null,
+    nextReviewAt: note.nextReviewAt?.toISOString() ?? null,
+    reviewCount: note.reviewCount,
+    easeFactor: note.easeFactor,
+    intervalDays: note.intervalDays,
   };
 }
 
@@ -439,6 +483,10 @@ export type GaiaListQuery = {
   sort?: string;
   refKind?: string;
   refId?: string;
+  /** Phase 1 — Memory: one of "forgotten" | "fragile" | "medium" | "mastered". */
+  mastery?: string;
+  /** Phase 1 — Memory: only notes whose review date has passed (or never reviewed). */
+  due?: boolean;
   /** 1-based page (default 1). */
   page?: number;
   /** Rows per page, 1-100 (default 50). */
@@ -476,6 +524,30 @@ function sortOrderBy(sort: string): Prisma.NoteOrderByWithRelationInput[] {
   return [{ updatedAt: "desc" }, { id: "desc" }];
 }
 
+/**
+ * Phase 1 — Memory: in-memory equivalent of the mastery/due SQL filters,
+ * for the refKind path (which scans notes in memory). A null nextReviewAt
+ * means "never reviewed", i.e. due.
+ */
+function memoryMatches(
+  note: Pick<Note, "mastery" | "nextReviewAt">,
+  query: GaiaListQuery,
+  now: Date,
+): boolean {
+  if (query.mastery !== undefined && query.mastery !== "") {
+    if (!isMasteryLevel(query.mastery)) {
+      throw validationError("Invalid mastery level.");
+    }
+    if (note.mastery !== query.mastery) return false;
+  }
+  if (query.due === true) {
+    if (note.nextReviewAt !== null && note.nextReviewAt.getTime() > now.getTime()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function listNotes(
   userId: string,
   query: GaiaListQuery,
@@ -495,9 +567,11 @@ export async function listNotes(
     }
     const kind = parsed.data;
     const all = await db.note.findMany({ where: { userId } });
+    const now = new Date();
     const linked = all.filter(
       (note) =>
         note.deletedAt === null &&
+        memoryMatches(note, query, now) &&
         parseJsonBlocks(note.blocks).some(
           (b) => b.type === "ref" && b.ref?.kind === kind && b.ref.id === query.refId,
         ),
@@ -527,6 +601,19 @@ export async function listNotes(
       // tagIds is a JSON string array: the quoted match is exact
       // membership (same as the old array .includes()).
       where.tagIds = { contains: `"${query.tagId}"` };
+    }
+    // Phase 1 — Memory filters (apply to the common + text-search paths;
+    // the refKind path filters in memory, see memoryMatches above).
+    // An invalid mastery value is a validation error, not an empty list.
+    if (query.mastery !== undefined && query.mastery !== "") {
+      if (!isMasteryLevel(query.mastery)) {
+        throw validationError("Invalid mastery level.");
+      }
+      where.mastery = query.mastery;
+    }
+    if (query.due === true) {
+      // Never reviewed (null) counts as due.
+      where.OR = [{ nextReviewAt: null }, { nextReviewAt: { lte: new Date() } }];
     }
   }
 
@@ -650,6 +737,14 @@ export async function createNote(
       updatedAt: now,
       lastViewedAt: now,
       deletedAt: null,
+      // Phase 1 — Memory: a note you just wrote is not mastered yet —
+      // it starts "fragile" and is due for its first review right away.
+      mastery: "fragile",
+      lastReviewedAt: null,
+      nextReviewAt: now,
+      reviewCount: 0,
+      easeFactor: 2.5,
+      intervalDays: 0,
     },
   });
   const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
@@ -768,10 +863,238 @@ export async function duplicateNote(
       updatedAt: now,
       lastViewedAt: now,
       deletedAt: null,
+      // Phase 1 — Memory: a copy is a fresh note to learn — its memory
+      // state restarts, it does not inherit the source's mastery.
+      mastery: "fragile",
+      lastReviewedAt: null,
+      nextReviewAt: now,
+      reviewCount: 0,
+      easeFactor: 2.5,
+      intervalDays: 0,
     },
   });
   const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
   return noteResponse(userId, copy, folders, tags);
+}
+
+/* ── Phase 1 — Memory : révision espacée + statistiques ────────────────── */
+
+const reviewInputSchema = z.object({
+  quality: z.number().int().min(0).max(3),
+});
+
+const masteryInputSchema = z.object({
+  mastery: z.string().refine((v): v is MasteryLevel => isMasteryLevel(v), {
+    message: "Invalid mastery level.",
+  }),
+});
+
+/**
+ * Grade one review (Forgot / Hard / Good / Easy → quality 0..3).
+ * Simplified SM-2 (see src/lib/gaia/spaced-repetition.ts). A review is
+ * not a content edit: no version snapshot, blocks untouched.
+ */
+export async function reviewNote(
+  userId: string,
+  noteId: string,
+  input: unknown,
+): Promise<GaiaNoteResponse> {
+  const parsed = parseOrThrow(reviewInputSchema, input);
+  const quality = parsed.quality as ReviewQuality;
+  const note = await findActiveNote(userId, noteId);
+  if (!note) throw NOTE_NOT_FOUND();
+  const now = new Date();
+  const result = applyReview(
+    { easeFactor: note.easeFactor, intervalDays: note.intervalDays },
+    quality,
+    now,
+  );
+  const updated = await db.note.update({
+    where: { id: note.id },
+    data: {
+      mastery: result.mastery,
+      intervalDays: result.intervalDays,
+      easeFactor: result.easeFactor,
+      nextReviewAt: result.nextReviewAt,
+      lastReviewedAt: now,
+      reviewCount: note.reviewCount + 1,
+      updatedAt: now,
+    },
+  });
+  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
+  return noteResponse(userId, updated, folders, tags);
+}
+
+/**
+ * Move a note to a mastery column (Kanban drag & drop or "Move to…"
+ * menu). A manual move reclassifies the note — it is not a review:
+ * the ease factor and review count are untouched, only the mastery,
+ * the interval and the next review date change.
+ */
+export async function moveNoteToMastery(
+  userId: string,
+  noteId: string,
+  input: unknown,
+): Promise<GaiaNoteResponse> {
+  const parsed = parseOrThrow(masteryInputSchema, input);
+  const note = await findActiveNote(userId, noteId);
+  if (!note) throw NOTE_NOT_FOUND();
+  const result = moveToMastery(parsed.mastery, new Date());
+  const updated = await db.note.update({
+    where: { id: note.id },
+    data: {
+      mastery: result.mastery,
+      intervalDays: result.intervalDays,
+      nextReviewAt: result.nextReviewAt,
+      updatedAt: new Date(),
+    },
+  });
+  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
+  return noteResponse(userId, updated, folders, tags);
+}
+
+export type GaiaMemoryHeatmapDay = {
+  /** UTC date, YYYY-MM-DD. */
+  date: string;
+  /** Reviews completed that day (see note below). */
+  reviews: number;
+  /** Notes created that day. */
+  created: number;
+};
+
+export type GaiaMemoryStatsResponse = {
+  totalNotes: number;
+  dueCount: number;
+  countsByMastery: Record<MasteryLevel, number>;
+  /** null when the workspace has no notes yet (empty state). */
+  score: number | null;
+  scoreParts: {
+    /** Mean mastery value (forgotten 0, fragile 0.33, medium 0.66, mastered 1). */
+    avgMastery: number;
+    /** 1 − dueCount / totalNotes. */
+    dueClearance: number;
+    /** min(7, streakDays) / 7. */
+    streakFactor: number;
+  };
+  /** Consecutive days with ≥ 1 review, ending today or yesterday. */
+  streakDays: number;
+  /** 26 weeks × 7 days, oldest first, ending today (UTC). */
+  heatmap: GaiaMemoryHeatmapDay[];
+};
+
+/**
+ * Memory Score — transparent formula (also documented in the README):
+ *
+ *   score = round(100 × (0.55 × avgMastery
+ *                        + 0.25 × dueClearance
+ *                        + 0.20 × streakFactor))
+ *
+ *   avgMastery    mean mastery value over all active notes
+ *                 (forgotten 0, fragile 0.33, medium 0.66, mastered 1)
+ *   dueClearance  1 − dueCount / max(1, totalNotes)
+ *   streakFactor  min(7, streakDays) / 7
+ *
+ * Heatmap caveat: there is no review-history table in Phase 1, so the
+ * per-day "reviews" count is derived from each note's lastReviewedAt —
+ * a note reviewed twice on different days only counts on its most recent
+ * review day. "created" is exact (from createdAt). If per-day review
+ * history ever needs to be exact, add a review-events table.
+ */
+export async function getMemoryStats(
+  userId: string,
+): Promise<GaiaMemoryStatsResponse> {
+  const notes = await db.note.findMany({
+    where: { userId, deletedAt: null },
+    select: {
+      mastery: true,
+      lastReviewedAt: true,
+      nextReviewAt: true,
+      createdAt: true,
+    },
+  });
+  const now = new Date();
+  const totalNotes = notes.length;
+
+  const countsByMastery: Record<MasteryLevel, number> = {
+    forgotten: 0,
+    fragile: 0,
+    medium: 0,
+    mastered: 0,
+  };
+  let masterySum = 0;
+  let dueCount = 0;
+  for (const note of notes) {
+    const level: MasteryLevel = isMasteryLevel(note.mastery)
+      ? note.mastery
+      : "fragile";
+    countsByMastery[level] += 1;
+    masterySum += MASTERY_VALUE[level];
+    if (note.nextReviewAt === null || note.nextReviewAt.getTime() <= now.getTime()) {
+      dueCount += 1;
+    }
+  }
+
+  // ── Heatmap: 182 days ending today (UTC) ──
+  const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
+  const todayKey = dayKey(now);
+  const heatmap: GaiaMemoryHeatmapDay[] = [];
+  const byDay = new Map<string, GaiaMemoryHeatmapDay>();
+  for (let i = 181; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 86_400_000);
+    const day = { date: dayKey(d), reviews: 0, created: 0 };
+    heatmap.push(day);
+    byDay.set(day.date, day);
+  }
+  for (const note of notes) {
+    const created = byDay.get(dayKey(note.createdAt));
+    if (created) created.created += 1;
+    if (note.lastReviewedAt !== null) {
+      const reviewed = byDay.get(dayKey(note.lastReviewedAt));
+      if (reviewed) reviewed.reviews += 1;
+    }
+  }
+
+  // ── Streak: consecutive days with ≥ 1 review, ending today or yesterday.
+  const reviewDays = new Set(
+    notes
+      .filter((n) => n.lastReviewedAt !== null)
+      .map((n) => dayKey(n.lastReviewedAt as Date)),
+  );
+  let streakDays = 0;
+  // If today has no review yet, the streak may still be alive from yesterday.
+  let cursor = reviewDays.has(todayKey) ? 0 : 1;
+  while (reviewDays.has(dayKey(new Date(now.getTime() - cursor * 86_400_000)))) {
+    streakDays += 1;
+    cursor += 1;
+  }
+
+  if (totalNotes === 0) {
+    return {
+      totalNotes: 0,
+      dueCount: 0,
+      countsByMastery,
+      score: null,
+      scoreParts: { avgMastery: 0, dueClearance: 0, streakFactor: 0 },
+      streakDays,
+      heatmap,
+    };
+  }
+
+  const avgMastery = masterySum / totalNotes;
+  const dueClearance = 1 - dueCount / Math.max(1, totalNotes);
+  const streakFactor = Math.min(7, streakDays) / 7;
+  const score = Math.round(
+    100 * (0.55 * avgMastery + 0.25 * dueClearance + 0.2 * streakFactor),
+  );
+  return {
+    totalNotes,
+    dueCount,
+    countsByMastery,
+    score,
+    scoreParts: { avgMastery, dueClearance, streakFactor },
+    streakDays,
+    heatmap,
+  };
 }
 
 /* ── Versions ────────────────────────────────────────────────────────── */

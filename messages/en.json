@@ -47,7 +47,8 @@
         "folders": "Folders",
         "favorites": "Favorites",
         "templates": "Templates",
-        "trash": "Trash"
+        "trash": "Trash",
+        "memory": "Memory"
       },
       "tagline": "Learn → think → write → document → research → connect → apply. Your personal trading knowledge workspace: notes, ideas, research and documentation, connected to your trades and strategies.",
       "focusHint": "Focus mode: navigation is hidden while you write. Use the minimize button to come back.",
@@ -320,6 +321,48 @@
       "emptyPrefix": "No notes linked yet. Notes you take here live in Gaïa and stay connected to this ",
       "emptySuffix": ".",
       "moreInNofy": "more in Gaïa"
+    },
+    "memory": {
+      "levels": {
+        "forgotten": "Forgotten",
+        "fragile": "Fragile",
+        "medium": "Medium",
+        "mastered": "Mastered"
+      },
+      "qualities": {
+        "forgot": "Forgot",
+        "hard": "Hard",
+        "good": "Good",
+        "easy": "Easy"
+      },
+      "scoreTitle": "Memory Score",
+      "scoreLabel": "Memory score {score} out of 100",
+      "scoreMastery": "Mastery",
+      "scoreDue": "Due clearance",
+      "scoreStreak": "Review streak",
+      "scoreFormula": "Score = 55% mastery + 25% due clearance + 20% streak",
+      "dueCount": "{count} due for review",
+      "streakDays": "{count}-day streak",
+      "dueOnly": "Due only",
+      "showAll": "Show all",
+      "review": "Review",
+      "reviewedToast": "Reviewed — next review {date}",
+      "moveTo": "Move to…",
+      "nextReview": "Next review {date}",
+      "dueNow": "Due now",
+      "reviewsCount": "{count} reviews",
+      "columnEmpty": "No notes here yet.",
+      "boardTitle": "Memory board",
+      "boardHint": "Drag a card to a column, or use its menu, to set its mastery level.",
+      "heatmapTitle": "Activity",
+      "heatmapHint": "Reviews and notes created over the last 26 weeks.",
+      "heatmapSummary": "{reviews} reviews · {created} notes created in the last 26 weeks",
+      "heatmapReviews": "reviews",
+      "heatmapCreated": "notes created",
+      "heatmapLess": "Less",
+      "heatmapMore": "More",
+      "emptyTitle": "No notes to remember yet",
+      "emptyBody": "Create your first note and it will appear here, ready for its first review."
     }
   },
   "common": {

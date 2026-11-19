@@ -5,7 +5,7 @@ import { createNote, gaiaErrorResponse, listNotes } from "@/server/gaia";
 
 /**
  * GET  /api/gaia/notes?view=&folderId=&tagId=&q=&sort=&page=&pageSize=
- *      (+ refKind/refId)
+ *      (+ refKind/refId, + mastery=, + due=true)
  * POST /api/gaia/notes : créer une note (201).
  */
 export async function GET(req: Request) {
@@ -20,6 +20,8 @@ export async function GET(req: Request) {
       sort: url.searchParams.get("sort") ?? undefined,
       refKind: url.searchParams.get("refKind") ?? undefined,
       refId: url.searchParams.get("refId") ?? undefined,
+      mastery: url.searchParams.get("mastery") ?? undefined,
+      due: url.searchParams.get("due") === "true",
       page: url.searchParams.get("page") === null ? undefined : Number(url.searchParams.get("page")),
       pageSize:
         url.searchParams.get("pageSize") === null

@@ -87,6 +87,18 @@ model Note {
   blocks       String    @default("[]")
   lastViewedAt DateTime? @map("last_viewed_at")
   deletedAt    DateTime? @map("deleted_at")
+  // ── Phase 1 — Memory (Heat Memory System + spaced repetition, 18 Nov 2026).
+  // Mastery is a plain String (no Prisma enum, same convention as the
+  // other status-like values): "forgotten" | "fragile" | "medium" |
+  // "mastered", validated by Zod at the edge (src/lib/gaia/spaced-repetition.ts).
+  // nextReviewAt is null for notes created before this feature — null means
+  // "never reviewed", i.e. due for review.
+  mastery       String    @default("fragile")
+  lastReviewedAt DateTime? @map("last_reviewed_at")
+  nextReviewAt  DateTime? @map("next_review_at")
+  reviewCount   Int       @default(0) @map("review_count")
+  easeFactor    Float     @default(2.5) @map("ease_factor")
+  intervalDays  Int       @default(0) @map("interval_days")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -96,6 +108,7 @@ model Note {
 
   @@index([userId])
   @@index([userId, folderId])
+  @@index([userId, nextReviewAt])
   @@map("gaia_notes")
 }
 

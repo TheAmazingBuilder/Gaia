@@ -152,6 +152,51 @@ Two errors seen live on localhost:3000, both fixed here:
   (`src/lib/router.ts`) now uses `useSearchParams()`, reactive by
   construction; the Suspense boundary for it is in `gaia-home.tsx`.
 
+## Phase 1 — Memory (18 Nov 2026, branch `Features-gaia`)
+
+The Heat Memory System from the Fluxora feature list, built into Gaïa —
+no AI, no new dependency, everything deterministic TypeScript:
+
+- **Mastery per note** (`mastery`, `lastReviewedAt`, `nextReviewAt`,
+  `reviewCount`, `easeFactor`, `intervalDays` on `Note`): forgotten (red) /
+  fragile (orange) / medium (amber) / mastered (green). A new note starts
+  "fragile" and is due for its first review right away. The mastery badge
+  (dot + text label, never color alone) also shows on the My Notes list.
+- **Spaced repetition** (`src/lib/gaia/spaced-repetition.ts`, pure
+  functions): simplified SM-2. Review grades Forgot / Hard / Good / Easy
+  map to SM-2 qualities 0 / 3 / 4 / 5; interval 1 day, then 6, then
+  round(interval × ease); ease floored at 1.3; mastery derived from the
+  interval (0 → forgotten, 1–2 → fragile, 3–13 → medium, 14+ → mastered).
+- **Memory tab** (`?tab=memory`): Memory Score ring + breakdown, Kanban
+  board with the 4 mastery columns (native HTML5 drag & drop + a "Move
+  to…" menu per card as the keyboard/touch alternative), a per-card
+  Review button (Forgot / Hard / Good / Easy), a "Due only" toggle, and a
+  GitHub-style 26-week activity heatmap (emerald scale, legend, text
+  summary — the per-day review counts are derived from each note's
+  `lastReviewedAt`, so a note counts only on its most recent review day;
+  see the caveat in `getMemoryStats`).
+- **Memory Score** (transparent formula, also in `getMemoryStats`):
+  `round(100 × (0.55 × avgMastery + 0.25 × dueClearance + 0.20 × streakFactor))`
+  where avgMastery is the mean mastery value (forgotten 0, fragile 0.33,
+  medium 0.66, mastered 1), dueClearance is `1 − dueCount / totalNotes`,
+  and streakFactor is `min(7, streakDays) / 7`. No notes yet → score is
+  null (empty state).
+- **API**: `POST /api/gaia/notes/[id]/review {quality: 0|1|2|3}`,
+  `POST /api/gaia/notes/[id]/mastery {mastery}`,
+  `GET /api/gaia/memory/stats`, list filter `?mastery=` / `?due=true` —
+  all mirrored under `/api/v1/gaia/` like the other Gaïa routes.
+
+To pick this up on your PC (schema change — needs a database push):
+
+```bash
+git pull            # on branch Features-gaia
+npx prisma db push  # adds the 6 Memory columns + the (userId, nextReviewAt) index
+npm run dev         # restart the dev server
+```
+
+Existing notes keep working: they get mastery "fragile" and a null
+`nextReviewAt`, which counts as due for review.
+
 ## Project layout
 
 ```
@@ -161,15 +206,17 @@ src/
     page.tsx / gaia/      Home = Gaïa (both routes)
     api/
       auth/               login, logout, me, signup
-      gaia/               16 Gaïa routes (implementation)
-      v1/gaia/            16 versioned re-exports
+      gaia/               19 Gaïa routes (implementation)
+      v1/gaia/            19 versioned re-exports
   components/
     app/                  Providers, RouterSync, GaiaHome, GaiaShell, AuthScreen
-    gaia/                 the 9 Gaïa components (verbatim from Promethe)
+    gaia/                 the 10 Gaïa components (verbatim from Promethe,
+                          + gaia-memory.tsx, Phase 1 Memory)
     ui/                   shadcn primitives used by Gaïa
   i18n/                   en-only config, dictionaries, provider
   lib/
-    gaia/                 content, refs (trading kinds stubbed), templates, versioning
+    gaia/                 content, refs (trading kinds stubbed), templates, versioning,
+                          spaced-repetition (Phase 1 Memory, pure SM-2)
     auth/                 password (scrypt), types, validators
     api-client, db, rate-limit, router, routes, utils
   server/

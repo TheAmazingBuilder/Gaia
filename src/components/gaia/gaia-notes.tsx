@@ -53,6 +53,7 @@ import {
   GaiaEmptyState,
   gaiaErrorMessage,
   gaiaRelativeTime,
+  MasteryBadge,
   TagChip,
   useDuplicateGaiaNote,
   useGaiaFolders,
@@ -423,6 +424,8 @@ export function NotesBrowser({
                   ) : null}
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     <FolderChip name={note.folderName} />
+                    {/* Phase 1 — Memory: mastery badge on every note row. */}
+                    <MasteryBadge mastery={note.mastery} />
                     {note.tagNames.slice(0, 3).map((name) => (
                       <TagChip key={name} name={name} />
                     ))}
@@ -467,11 +470,13 @@ export function NotesBrowser({
                   note.excerpt
                 )}
               </p>
-              <div className="mt-3 flex items-center gap-1.5">
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 {note.favorite ? (
                   <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" aria-hidden="true" />
                 ) : null}
                 <FolderChip name={note.folderName} />
+                {/* Phase 1 — Memory: mastery badge on every note card. */}
+                <MasteryBadge mastery={note.mastery} />
                 <span className="ml-auto text-[11px] text-muted-foreground">
                   {gaiaRelativeTime(note.updatedAt, tr)}
                 </span>

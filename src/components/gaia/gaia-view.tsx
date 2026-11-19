@@ -11,6 +11,7 @@
 import * as React from "react";
 import {
   ArrowLeft,
+  Brain,
   FileText,
   Folder,
   LayoutDashboard,
@@ -40,18 +41,20 @@ import {
 } from "./gaia-shared";
 import { NotesBrowser } from "./gaia-notes";
 import { FoldersPanel, OverviewPanel, TemplatesPanel, TrashPanel } from "./gaia-panels";
+import { MemoryPanel } from "./gaia-memory";
 import { GaiaEditor } from "./gaia-editor";
 
 const TABS: Array<{ id: GaiaTab; icon: typeof LayoutDashboard }> = [
   { id: "overview", icon: LayoutDashboard },
   { id: "notes", icon: FileText },
+  { id: "memory", icon: Brain },
   { id: "folders", icon: Folder },
   { id: "favorites", icon: Star },
   { id: "templates", icon: NotebookText },
   { id: "trash", icon: Trash2 },
 ];
 
-const VALID_TABS: GaiaTab[] = ["overview", "notes", "folders", "favorites", "templates", "trash"];
+const VALID_TABS: GaiaTab[] = ["overview", "notes", "memory", "folders", "favorites", "templates", "trash"];
 const VALID_VIEWS: GaiaNotesView[] = ["all", "favorites", "trash", "folder", "tag"];
 
 export function GaiaView() {
@@ -284,6 +287,9 @@ export function GaiaView() {
                 }}
                 testid="gaia-notes-panel"
               />
+            ) : null}
+            {activeTab === "memory" ? (
+              <MemoryPanel onOpenNote={openNote} onCreateNote={handleCreateNote} />
             ) : null}
             {activeTab === "folders" ? (
               <FoldersPanel

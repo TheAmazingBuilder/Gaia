@@ -19,8 +19,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { apiFetch, ApiClientError } from "@/lib/api-client";
 import { parseHash, routeToPath } from "@/lib/routes";
+import {
+  type MasteryLevel,
+  type ReviewQuality,
+} from "@/lib/gaia/spaced-repetition";
 
 // ── Block model (mirrors the backend contract) ─────────────────────────────
 
@@ -95,6 +100,13 @@ export interface GaiaNote {
   updatedAt: string;
   lastViewedAt: string | null;
   deletedAt: string | null;
+  // Phase 1 — Memory (Heat Memory System + spaced repetition).
+  mastery: MasteryLevel;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  reviewCount: number;
+  easeFactor: number;
+  intervalDays: number;
 }
 
 export interface GaiaNoteRow {
@@ -117,6 +129,13 @@ export interface GaiaNoteRow {
   updatedAt: string;
   lastViewedAt: string | null;
   deletedAt: string | null;
+  // Phase 1 — Memory (Heat Memory System + spaced repetition).
+  mastery: MasteryLevel;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  reviewCount: number;
+  easeFactor: number;
+  intervalDays: number;
 }
 
 export interface GaiaFolder {
@@ -183,7 +202,14 @@ export interface GaiaRefHit {
 
 export type GaiaNotesView = "all" | "favorites" | "trash" | "folder" | "tag";
 
-export type GaiaTab = "overview" | "notes" | "folders" | "favorites" | "templates" | "trash";
+export type GaiaTab =
+  | "overview"
+  | "notes"
+  | "folders"
+  | "favorites"
+  | "templates"
+  | "trash"
+  | "memory";
 
 export interface GaiaNotesParams {
   view: GaiaNotesView;
@@ -193,6 +219,10 @@ export interface GaiaNotesParams {
   sort: string;
   /** Rows per page (server default 50, max 100). */
   pageSize?: number;
+  /** Phase 1 — Memory: filter by mastery level. */
+  mastery?: string;
+  /** Phase 1 — Memory: only notes due for review. */
+  due?: boolean;
 }
 
 export const GAIA_DEFAULT_PARAMS: GaiaNotesParams = {
@@ -329,6 +359,45 @@ export function FolderChip({ name }: { name: string | null }) {
   );
 }
 
+// ── Phase 1 — Memory: mastery badge ────────────────────────────────────────
+// Muted tones that fit the dark emerald theme (red-400 / orange-400 /
+// amber-300 / emerald-400 dots). The label is always text, never the
+// color alone — a screen reader and a colorblind user get the same info.
+export const MASTERY_META: Record<
+  MasteryLevel,
+  { dot: string; chip: string }
+> = {
+  forgotten: {
+    dot: "bg-red-400",
+    chip: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+  },
+  fragile: {
+    dot: "bg-orange-400",
+    chip: "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  },
+  medium: {
+    dot: "bg-amber-300",
+    chip: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  },
+  mastered: {
+    dot: "bg-emerald-400",
+    chip: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  },
+};
+
+export function MasteryBadge({ mastery }: { mastery: MasteryLevel }) {
+  const t = useTranslations();
+  const meta = MASTERY_META[mastery];
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] ${meta.chip}`}
+    >
+      <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+      {t(`gaia.memory.levels.${mastery}`)}
+    </span>
+  );
+}
+
 /** Inline **bold**, *italic* and `code` — parsed into React nodes, never HTML. */
 export function InlineMarkdown({ text }: { text: string }) {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/g);
@@ -401,6 +470,9 @@ function gaiaNotesQuery(params: GaiaNotesParams): string {
   if (params.pageSize && params.pageSize !== 50) {
     q.set("pageSize", String(params.pageSize));
   }
+  // Phase 1 — Memory filters.
+  if (params.mastery) q.set("mastery", params.mastery);
+  if (params.due === true) q.set("due", "true");
   return q.toString();
 }
 
@@ -408,6 +480,59 @@ export function useGaiaOverview() {
   return useQuery({
     queryKey: ["gaia", "overview"],
     queryFn: () => apiFetch<GaiaOverview>(`${GAIA_BASE}/overview`),
+  });
+}
+
+// ── Phase 1 — Memory ────────────────────────────────────────────────────────
+
+export interface GaiaMemoryHeatmapDay {
+  date: string;
+  reviews: number;
+  created: number;
+}
+
+export interface GaiaMemoryStats {
+  totalNotes: number;
+  dueCount: number;
+  countsByMastery: Record<MasteryLevel, number>;
+  score: number | null;
+  scoreParts: {
+    avgMastery: number;
+    dueClearance: number;
+    streakFactor: number;
+  };
+  streakDays: number;
+  heatmap: GaiaMemoryHeatmapDay[];
+}
+
+export function useGaiaMemoryStats() {
+  return useQuery({
+    queryKey: ["gaia", "memory", "stats"],
+    queryFn: () => apiFetch<GaiaMemoryStats>(`${GAIA_BASE}/memory/stats`),
+  });
+}
+
+export function useReviewGaiaNote() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, quality }: { noteId: string; quality: ReviewQuality }) =>
+      apiFetch<{ note: GaiaNote; folderName: string | null; tagNames: string[] }>(
+        `${GAIA_BASE}/notes/${noteId}/review`,
+        { method: "POST", body: JSON.stringify({ quality }) },
+      ),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useMoveGaiaNoteToMastery() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, mastery }: { noteId: string; mastery: MasteryLevel }) =>
+      apiFetch<{ note: GaiaNote; folderName: string | null; tagNames: string[] }>(
+        `${GAIA_BASE}/notes/${noteId}/mastery`,
+        { method: "POST", body: JSON.stringify({ mastery }) },
+      ),
+    onSuccess: () => invalidate(),
   });
 }
 
