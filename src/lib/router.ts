@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useMemo } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   parseHash,
   parsePathname,
@@ -52,31 +52,24 @@ export function navigate(to: string): void {
   window.location.assign(target);
 }
 
-/** Current route, derived from the Next.js pathname + query string. */
+/**
+ * Current route, derived from the Next.js pathname + search params.
+ *
+ * Previously this tracked `window.location.search` by hand and synced it on
+ * `popstate` + a custom event dispatched by `navigate()`. That broke when
+ * `router.push()` committed the URL asynchronously (tab clicks changed the
+ * URL but the panel stayed — e.g. Templates kept showing Folders): the sync
+ * ran before the URL had actually changed, and pushState fires no event to
+ * catch up. `useSearchParams()` is reactive to router navigation by
+ * construction, so the tab always follows the URL. Requires the Suspense
+ * boundary around <GaiaShell /> in gaia-home.tsx.
+ */
 export function useRoute(): AppRoute {
   const pathname = usePathname();
-  const [search, setSearch] = useState<string>(() =>
-    typeof window === "undefined" ? "" : window.location.search,
-  );
-
-  useEffect(() => {
-    const sync = () => setSearch(window.location.search);
-    sync();
-    window.addEventListener("popstate", sync);
-    window.addEventListener(ROUTE_CHANGE_EVENT, sync);
-    return () => {
-      window.removeEventListener("popstate", sync);
-      window.removeEventListener(ROUTE_CHANGE_EVENT, sync);
-    };
-  }, []);
-
+  const searchParams = useSearchParams();
   return useMemo(
-    () =>
-      parsePathname(
-        pathname ?? "/",
-        new URLSearchParams(search.startsWith("?") ? search.slice(1) : search),
-      ),
-    [pathname, search],
+    () => parsePathname(pathname ?? "/", searchParams),
+    [pathname, searchParams],
   );
 }
 

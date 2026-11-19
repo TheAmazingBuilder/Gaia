@@ -74,7 +74,9 @@ since 17 Nov 2026).
   user's own active notes). No trading data is ever invented.
 - **Database:** schema is `User` + `AuthSession` + the 5 Gaïa models only.
   `DATABASE_URL` is the pooled runtime connection (Transaction pooler, port
-  6543); `DIRECT_URL` (Session pooler, port 5432) is what Prisma uses for
+  6543, with `?pgbouncer=true` — required, the Transaction pooler drops
+  Prisma prepared statements otherwise, Postgres error 26000);
+  `DIRECT_URL` (Session pooler, port 5432) is what Prisma uses for
   schema changes (`prisma db push`) — added 18 Nov 2026, like Promethe.
   `src/lib/db.ts` is a plain
   Prisma client — no soft-delete extension (Gaïa handles `deletedAt`
@@ -108,8 +110,8 @@ Then open http://localhost:3000, create an account, and write.
 > access; the Next.js server enforces userId scoping in code.
 
 Environment: copy `.env.example` to `.env` and set `DATABASE_URL`
-(pooler, port 6543) and `DIRECT_URL` (Session pooler, port 5432, same
-password).
+(pooler, port 6543, with `?pgbouncer=true`) and `DIRECT_URL` (Session
+pooler, port 5432, same password).
 Never commit `.env` — it is gitignored. No other secret is needed.
 
 ## Verification (18 Nov 2026, build VM)
@@ -126,6 +128,29 @@ Never commit `.env` — it is gitignored. No other secret is needed.
   `/api/v1/gaia/overview` without a session return 401 `UNAUTHORIZED`.
 - `npx prisma db push` was **not** run here (no credentials on the VM, proxy
   blocked) — it is the first step on your PC, see above.
+
+## Fixes — 18 Nov 2026 (evening, branch `Features-gaia`)
+
+Two errors seen live on localhost:3000, both fixed here:
+
+- **Prisma "prepared statement does not exist" (Postgres 26000)** in
+  `getSession` (`src/server/session.ts`): the Transaction pooler (port 6543)
+  drops prepared statements between queries, so `authSession.findUnique`
+  failed intermittently and the home page would not load. Fix: `DATABASE_URL`
+  must carry `?pgbouncer=true` (see `.env.example`) — Prisma then inlines
+  parameters instead of preparing statements. Same fix as Promethe.
+- **next-themes script error (React 19)**: next-themes 0.4.6 renders its
+  no-flash `<script>` inside the React tree, which React 19 rejects on
+  client render. The dependency is removed; `src/components/theme-provider.tsx`
+  is now a minimal custom provider that injects the blocking theme script
+  with `useServerInsertedHTML` (outside the React tree) and keeps the same
+  behaviour (storage key `theme`, default dark, system following).
+- **Templates tab stuck on Folders**: `useRoute` tracked
+  `window.location.search` by hand and synced on a custom event fired right
+  after `router.push()` — but the URL commits asynchronously, so the sync
+  ran before the URL changed and nothing re-synced after. `useRoute`
+  (`src/lib/router.ts`) now uses `useSearchParams()`, reactive by
+  construction; the Suspense boundary for it is in `gaia-home.tsx`.
 
 ## Project layout
 
