@@ -25,6 +25,7 @@ import { parseHash, routeToPath } from "@/lib/routes";
 import {
   type MasteryLevel,
   type ReviewQuality,
+  type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
 
 // ── Block model (mirrors the backend contract) ─────────────────────────────
@@ -209,7 +210,8 @@ export type GaiaTab =
   | "favorites"
   | "templates"
   | "trash"
-  | "memory";
+  | "memory"
+  | "graph";
 
 export interface GaiaNotesParams {
   view: GaiaNotesView;
@@ -223,6 +225,8 @@ export interface GaiaNotesParams {
   mastery?: string;
   /** Phase 1 — Memory: only notes due for review. */
   due?: boolean;
+  /** Phase 2 — Temporal Kanban: filter by time bucket. */
+  period?: TimePeriod;
 }
 
 export const GAIA_DEFAULT_PARAMS: GaiaNotesParams = {
@@ -473,6 +477,8 @@ function gaiaNotesQuery(params: GaiaNotesParams): string {
   // Phase 1 — Memory filters.
   if (params.mastery) q.set("mastery", params.mastery);
   if (params.due === true) q.set("due", "true");
+  // Phase 2 — Temporal Kanban filter.
+  if (params.period) q.set("period", params.period);
   return q.toString();
 }
 
@@ -491,6 +497,37 @@ export interface GaiaMemoryHeatmapDay {
   created: number;
 }
 
+// ── Phase 2 — Timeline + journal (from GET /api/v1/gaia/memory/stats) ────
+
+export interface GaiaMemoryTimelineNote {
+  id: string;
+  title: string;
+  mastery: MasteryLevel;
+  createdAt: string;
+}
+
+export interface GaiaMemoryTimelineMonth {
+  /** Month key, YYYY-MM (UTC). */
+  month: string;
+  /** Total notes created that month (notes list capped at 20). */
+  count: number;
+  /** Newest first, max 20. */
+  notes: GaiaMemoryTimelineNote[];
+}
+
+export interface GaiaMemoryJournal {
+  today: {
+    created: number;
+    reviewed: number;
+    dueRemaining: number;
+    newlyMastered: number;
+  };
+  week: {
+    created: number;
+    reviewed: number;
+  };
+}
+
 export interface GaiaMemoryStats {
   totalNotes: number;
   dueCount: number;
@@ -503,6 +540,38 @@ export interface GaiaMemoryStats {
   };
   streakDays: number;
   heatmap: GaiaMemoryHeatmapDay[];
+  /** Phase 2 — Timeline: months newest first, max 12 months. */
+  timeline: GaiaMemoryTimelineMonth[];
+  /** Phase 2 — Daily journal, computed on the fly (no new table). */
+  journal: GaiaMemoryJournal;
+}
+
+// ── Phase 2 — Knowledge graph (from GET /api/v1/gaia/memory/graph) ───────
+
+export interface GaiaMemoryGraphNode {
+  id: string;
+  title: string;
+  mastery: MasteryLevel;
+  folderId: string | null;
+}
+
+export interface GaiaMemoryGraphEdge {
+  from: string;
+  to: string;
+  kind: "ref" | "tag";
+  tagName?: string;
+}
+
+export interface GaiaMemoryGraph {
+  nodes: GaiaMemoryGraphNode[];
+  edges: GaiaMemoryGraphEdge[];
+}
+
+export function useGaiaMemoryGraph() {
+  return useQuery({
+    queryKey: ["gaia", "memory", "graph"],
+    queryFn: () => apiFetch<GaiaMemoryGraph>(`${GAIA_BASE}/memory/graph`),
+  });
 }
 
 export function useGaiaMemoryStats() {
@@ -531,6 +600,20 @@ export function useMoveGaiaNoteToMastery() {
       apiFetch<{ note: GaiaNote; folderName: string | null; tagNames: string[] }>(
         `${GAIA_BASE}/notes/${noteId}/mastery`,
         { method: "POST", body: JSON.stringify({ mastery }) },
+      ),
+    onSuccess: () => invalidate(),
+  });
+}
+
+// ── Phase 2 — Temporal Kanban: reschedule a note into a time column.
+//    Mastery, ease factor and review count are untouched.
+export function useScheduleGaiaNote() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, period }: { noteId: string; period: TimePeriod }) =>
+      apiFetch<{ note: GaiaNote; folderName: string | null; tagNames: string[] }>(
+        `${GAIA_BASE}/notes/${noteId}/schedule`,
+        { method: "POST", body: JSON.stringify({ period }) },
       ),
     onSuccess: () => invalidate(),
   });

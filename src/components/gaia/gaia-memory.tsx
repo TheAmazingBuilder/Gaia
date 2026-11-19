@@ -12,7 +12,16 @@
  * text label (MasteryBadge), the heatmap has a text summary + legend.
  */
 import * as React from "react";
-import { Brain, Flame, MoreVertical } from "lucide-react";
+import {
+  Brain,
+  CalendarCheck,
+  CalendarDays,
+  CalendarRange,
+  Clock,
+  Flame,
+  MoreVertical,
+  type LucideIcon,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,14 +42,27 @@ import {
   useGaiaNotes,
   useMoveGaiaNoteToMastery,
   useReviewGaiaNote,
+  useScheduleGaiaNote,
   type GaiaNoteRow,
   type GaiaT,
 } from "./gaia-shared";
 import {
   MASTERY_LEVELS,
+  periodOf,
+  TIME_PERIODS,
   type MasteryLevel,
   type ReviewQuality,
+  type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
+
+// ── Phase 2 — Temporal Kanban: one icon per time bucket (lucide only,
+//    never emoji). The mastery columns keep their colored dot instead.
+const PERIOD_META: Record<TimePeriod, { icon: LucideIcon }> = {
+  today: { icon: CalendarCheck },
+  week: { icon: CalendarDays },
+  month: { icon: CalendarRange },
+  later: { icon: Clock },
+};
 
 const REVIEW_GRADES: Array<{ quality: ReviewQuality; key: string }> = [
   { quality: 0, key: "forgot" },
@@ -56,6 +78,11 @@ function shortDate(iso: string | null): string {
 
 function isDue(note: GaiaNoteRow): boolean {
   return note.nextReviewAt === null || new Date(note.nextReviewAt).getTime() <= Date.now();
+}
+
+/** Time bucket of a row: the API returns ISO strings, periodOf wants Dates. */
+function periodOfNote(note: GaiaNoteRow): TimePeriod {
+  return periodOf(note.nextReviewAt ? new Date(note.nextReviewAt) : null);
 }
 
 // ── Score ring ──────────────────────────────────────────────────────────────
@@ -96,9 +123,11 @@ function ScoreRing({ score }: { score: number }) {
 
 function MemoryCard({
   note,
+  groupBy,
   onOpenNote,
 }: {
   note: GaiaNoteRow;
+  groupBy: "mastery" | "time";
   onOpenNote: (id: string) => void;
 }) {
   const t = useTranslations();
@@ -107,6 +136,7 @@ function MemoryCard({
   const [reviewing, setReviewing] = React.useState(false);
   const reviewNote = useReviewGaiaNote();
   const moveNote = useMoveGaiaNoteToMastery();
+  const scheduleNote = useScheduleGaiaNote();
   const due = isDue(note);
 
   const handleReview = (quality: ReviewQuality) => {
@@ -131,6 +161,24 @@ function MemoryCard({
     void moveNote.mutateAsync({ noteId: note.id, mastery }).catch((err: unknown) =>
       toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
     );
+  };
+
+  // Phase 2 — Temporal Kanban: reschedule only, mastery untouched.
+  const handleSchedule = (period: TimePeriod) => {
+    if (periodOfNote(note) === period) return;
+    void scheduleNote
+      .mutateAsync({ noteId: note.id, period })
+      .then(
+        (res) => {
+          toast({
+            title: t("gaia.memory.scheduledToast", {
+              date: shortDate(res.note.nextReviewAt),
+            }),
+          });
+        },
+        (err: unknown) =>
+          toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+      );
   };
 
   return (
@@ -169,19 +217,36 @@ function MemoryCard({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48" onClick={(e) => e.stopPropagation()}>
-            {MASTERY_LEVELS.map((level) => (
-              <DropdownMenuItem
-                key={level}
-                disabled={level === note.mastery || moveNote.isPending}
-                onClick={() => handleMove(level)}
-              >
-                <span
-                  className={`size-2 rounded-full ${MASTERY_META[level].dot}`}
-                  aria-hidden="true"
-                />
-                {t(`gaia.memory.levels.${level}`)}
-              </DropdownMenuItem>
-            ))}
+            {groupBy === "mastery"
+              ? MASTERY_LEVELS.map((level) => (
+                  <DropdownMenuItem
+                    key={level}
+                    disabled={level === note.mastery || moveNote.isPending}
+                    onClick={() => handleMove(level)}
+                  >
+                    <span
+                      className={`size-2 rounded-full ${MASTERY_META[level].dot}`}
+                      aria-hidden="true"
+                    />
+                    {t(`gaia.memory.levels.${level}`)}
+                  </DropdownMenuItem>
+                ))
+              : TIME_PERIODS.map((period) => {
+                  const PeriodIcon = PERIOD_META[period].icon;
+                  return (
+                    <DropdownMenuItem
+                      key={period}
+                      disabled={
+                        periodOfNote(note) === period ||
+                        scheduleNote.isPending
+                      }
+                      onClick={() => handleSchedule(period)}
+                    >
+                      <PeriodIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+                      {t(`gaia.memory.periods.${period}`)}
+                    </DropdownMenuItem>
+                  );
+                })}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -224,7 +289,9 @@ function MemoryCard({
             variant="outline"
             size="sm"
             className="min-h-11 w-full"
-            disabled={reviewNote.isPending || moveNote.isPending}
+            disabled={
+              reviewNote.isPending || moveNote.isPending || scheduleNote.isPending
+            }
             onClick={() => setReviewing(true)}
           >
             {t("gaia.memory.review")}
@@ -237,12 +304,18 @@ function MemoryCard({
 
 // ── Kanban column ───────────────────────────────────────────────────────────
 
+// ── Kanban column ───────────────────────────────────────────────────────────
+// One component for both groupings: by mastery (Phase 1) and by time
+// (Phase 2). The query filter, the drop target and the card menu follow
+// the grouping; everything else (card style, layout, empty state) is shared.
 function MemoryColumn({
-  mastery,
+  group,
+  groupBy,
   dueOnly,
   onOpenNote,
 }: {
-  mastery: MasteryLevel;
+  group: MasteryLevel | TimePeriod;
+  groupBy: "mastery" | "time";
   dueOnly: boolean;
   onOpenNote: (id: string) => void;
 }) {
@@ -250,10 +323,15 @@ function MemoryColumn({
   const { toast } = useToast();
   const [dragOver, setDragOver] = React.useState(false);
   const moveNote = useMoveGaiaNoteToMastery();
+  const scheduleNote = useScheduleGaiaNote();
+  const isMastery = groupBy === "mastery";
+  const mastery = group as MasteryLevel;
+  const period = group as TimePeriod;
   const notesQuery = useGaiaNotes({
     ...GAIA_DEFAULT_PARAMS,
-    mastery,
-    due: dueOnly,
+    ...(isMastery
+      ? { mastery, due: dueOnly }
+      : { period }),
     pageSize: 50,
     sort: "updated",
   });
@@ -267,14 +345,35 @@ function MemoryColumn({
     if (!noteId) return;
     const dragged = notes.find((n) => n.id === noteId);
     if (dragged) return; // dropped back in its own column
-    void moveNote.mutateAsync({ noteId, mastery }).catch((err: unknown) =>
-      toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
-    );
+    if (isMastery) {
+      void moveNote.mutateAsync({ noteId, mastery }).catch((err: unknown) =>
+        toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+      );
+    } else {
+      // Phase 2 — reschedule only; the toast confirms the new date.
+      void scheduleNote
+        .mutateAsync({ noteId, period })
+        .then((res) =>
+          toast({
+            title: t("gaia.memory.scheduledToast", {
+              date: shortDate(res.note.nextReviewAt),
+            }),
+          }),
+        )
+        .catch((err: unknown) =>
+          toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+        );
+    }
   };
+
+  const label = isMastery
+    ? t(`gaia.memory.levels.${mastery}`)
+    : t(`gaia.memory.periods.${period}`);
+  const PeriodIcon = isMastery ? null : PERIOD_META[period].icon;
 
   return (
     <section
-      aria-label={t(`gaia.memory.levels.${mastery}`)}
+      aria-label={label}
       onDragOver={(e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
@@ -287,8 +386,12 @@ function MemoryColumn({
       }`}
     >
       <header className="flex items-center gap-2 px-1 pb-2">
-        <span className={`size-2.5 rounded-full ${MASTERY_META[mastery].dot}`} aria-hidden="true" />
-        <h3 className="text-sm font-semibold">{t(`gaia.memory.levels.${mastery}`)}</h3>
+        {isMastery ? (
+          <span className={`size-2.5 rounded-full ${MASTERY_META[mastery].dot}`} aria-hidden="true" />
+        ) : PeriodIcon ? (
+          <PeriodIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+        ) : null}
+        <h3 className="text-sm font-semibold">{label}</h3>
         <span className="ml-auto font-mono text-xs text-muted-foreground tabular-nums">
           {total}
         </span>
@@ -306,7 +409,12 @@ function MemoryColumn({
       ) : (
         <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-0.5">
           {notes.map((note) => (
-            <MemoryCard key={note.id} note={note} onOpenNote={onOpenNote} />
+            <MemoryCard
+              key={note.id}
+              note={note}
+              groupBy={groupBy}
+              onOpenNote={onOpenNote}
+            />
           ))}
         </div>
       )}
@@ -393,6 +501,9 @@ export function MemoryPanel({
   const t = useTranslations();
   const statsQuery = useGaiaMemoryStats();
   const [dueOnly, setDueOnly] = React.useState(false);
+  // Phase 2 — Temporal Kanban grouping. "Due only" only makes sense
+  // by mastery (in the time view the Today column already is the due set).
+  const [groupBy, setGroupBy] = React.useState<"mastery" | "time">("mastery");
   const stats = statsQuery.data;
 
   if (statsQuery.isLoading) {
@@ -463,29 +574,76 @@ export function MemoryPanel({
           </dl>
           <p className="text-[11px] text-muted-foreground">{t("gaia.memory.scoreFormula")}</p>
         </div>
-        <Button
-          type="button"
-          variant={dueOnly ? "default" : "outline"}
-          aria-pressed={dueOnly}
-          onClick={() => setDueOnly((v) => !v)}
-          className="min-h-11 shrink-0"
-        >
-          {dueOnly ? t("gaia.memory.showAll") : t("gaia.memory.dueOnly")}
-        </Button>
+        {groupBy === "mastery" ? (
+          <Button
+            type="button"
+            variant={dueOnly ? "default" : "outline"}
+            aria-pressed={dueOnly}
+            onClick={() => setDueOnly((v) => !v)}
+            className="min-h-11 shrink-0"
+          >
+            {dueOnly ? t("gaia.memory.showAll") : t("gaia.memory.dueOnly")}
+          </Button>
+        ) : null}
       </section>
 
       {/* Kanban board */}
       <section aria-label={t("gaia.memory.boardTitle")}>
-        <p className="mb-2 text-xs text-muted-foreground">{t("gaia.memory.boardHint")}</p>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div
+            role="group"
+            aria-label={t("gaia.memory.groupBy")}
+            className="inline-flex rounded-lg border bg-card p-1"
+          >
+            <button
+              type="button"
+              aria-pressed={groupBy === "mastery"}
+              onClick={() => setGroupBy("mastery")}
+              className={`min-h-9 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-emerald-500 ${
+                groupBy === "mastery"
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t("gaia.memory.byMastery")}
+            </button>
+            <button
+              type="button"
+              aria-pressed={groupBy === "time"}
+              onClick={() => setGroupBy("time")}
+              className={`min-h-9 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-emerald-500 ${
+                groupBy === "time"
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t("gaia.memory.byTime")}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {groupBy === "mastery" ? t("gaia.memory.boardHint") : t("gaia.memory.boardHintTime")}
+          </p>
+        </div>
         <div className="flex snap-x gap-3 overflow-x-auto pb-2 sm:snap-none">
-          {MASTERY_LEVELS.map((level) => (
-            <MemoryColumn
-              key={level}
-              mastery={level}
-              dueOnly={dueOnly}
-              onOpenNote={onOpenNote}
-            />
-          ))}
+          {groupBy === "mastery"
+            ? MASTERY_LEVELS.map((level) => (
+                <MemoryColumn
+                  key={level}
+                  group={level}
+                  groupBy="mastery"
+                  dueOnly={dueOnly}
+                  onOpenNote={onOpenNote}
+                />
+              ))
+            : TIME_PERIODS.map((period) => (
+                <MemoryColumn
+                  key={period}
+                  group={period}
+                  groupBy="time"
+                  dueOnly={false}
+                  onOpenNote={onOpenNote}
+                />
+              ))}
         </div>
       </section>
 

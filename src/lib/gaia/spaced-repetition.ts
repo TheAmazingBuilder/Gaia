@@ -140,3 +140,61 @@ export function moveToMastery(
 export function isDue(nextReviewAt: Date | null, now: Date = new Date()): boolean {
   return nextReviewAt === null || nextReviewAt.getTime() <= now.getTime();
 }
+
+// ── Phase 2 — Temporal Kanban ────────────────────────────────────────────
+// Columns are time buckets for the *next* review, not mastery levels.
+// Moving a card here reschedules it only: mastery, ease and review count
+// are untouched — a manual move is a reclassification, not a review.
+
+export type TimePeriod = "today" | "week" | "month" | "later";
+
+export const TIME_PERIODS: TimePeriod[] = ["today", "week", "month", "later"];
+
+export function isTimePeriod(value: unknown): value is TimePeriod {
+  return (
+    typeof value === "string" &&
+    (TIME_PERIODS as string[]).includes(value)
+  );
+}
+
+/**
+ * Time bucket of a next-review date: overdue or null → "today",
+ * within 7 days → "week", within 30 days → "month", beyond → "later".
+ */
+export function periodOf(nextReviewAt: Date | null, now: Date = new Date()): TimePeriod {
+  if (nextReviewAt === null || nextReviewAt.getTime() <= now.getTime()) {
+    return "today";
+  }
+  const ms = nextReviewAt.getTime() - now.getTime();
+  if (ms <= 7 * 86_400_000) return "week";
+  if (ms <= 30 * 86_400_000) return "month";
+  return "later";
+}
+
+export interface MoveToPeriodResult {
+  intervalDays: number;
+  nextReviewAt: Date;
+}
+
+/**
+ * Next review date + interval when a card is moved to a time column.
+ * Today means "due now" (interval 0); the other buckets are midpoints
+ * (week → +4 days, month → +14 days, later → +30 days) so the card
+ * lands inside its column instead of on its edge.
+ */
+export function moveToPeriod(
+  period: TimePeriod,
+  now: Date = new Date(),
+): MoveToPeriodResult {
+  const days: Record<TimePeriod, number> = {
+    today: 0,
+    week: 4,
+    month: 14,
+    later: 30,
+  };
+  const intervalDays = days[period];
+  return {
+    intervalDays,
+    nextReviewAt: new Date(now.getTime() + intervalDays * 86_400_000),
+  };
+}

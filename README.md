@@ -197,6 +197,48 @@ npm run dev         # restart the dev server
 Existing notes keep working: they get mastery "fragile" and a null
 `nextReviewAt`, which counts as due for review.
 
+## Phase 2 — Visual (18-19 Nov 2026, branch `Features-gaia`)
+
+The visual layer from the Fluxora feature list — still no AI, no schema
+change, everything deterministic TypeScript:
+
+- **Temporal Kanban** (Memory tab): a "By mastery | By time" toggle above
+  the board reuses the same Kanban component. The time view groups by
+  next review date — Today (due or never reviewed) / This week (≤ 7 days)
+  / This month (≤ 30 days) / Later. Drag & drop and the "Move to…" menu
+  reschedule only (`POST /api/gaia/notes/[id]/schedule {period}`): the
+  next review date and interval change, mastery/ease/review count are
+  untouched. List filter `?period=` (server-side, same ranges). The "Due
+  only" toggle is hidden in the time view (the Today column already is
+  the due set).
+- **Knowledge graph** (new Graph tab, `?tab=graph`): React Flow
+  (`@xyflow/react`, the one new dependency) with a hand-made radial BFS
+  layout (`src/lib/gaia/graph-layout.ts`, pure functions, no layout
+  library). Nodes are notes colored by mastery (dot + text label, never
+  color alone); solid edges are note→note references from `ref` blocks,
+  dashed edges are shared tags (opt-in checkbox, only for tags shared by
+  2–8 notes, capped at 200 edges). Search highlights matching nodes,
+  mastery chips hide/show levels, click a node to open the note.
+  Data via `GET /api/gaia/memory/graph` (+ v1 mirror).
+- **Memory timeline**: notes grouped by creation month (newest first,
+  max 12 months, max 20 notes per month, collapsible sections) — served
+  inside `GET /api/gaia/memory/stats` as `timeline`.
+- **Daily journal**: "Today" card (notes created, reviews done, still
+  due, newly mastered) + "This week" summary, computed on the fly from
+  the same stats payload (`journal`) — no new table. Same approximation
+  as the Phase 1 heatmap: reviews and newly-mastered counts are derived
+  from each note's `lastReviewedAt`, so a note reviewed on two different
+  days counts only on its most recent review day (documented in
+  `getMemoryStats` and in the UI).
+
+To pick this up on your PC (no schema change — no database push needed):
+
+```bash
+git pull            # on branch Features-gaia
+npm install         # adds @xyflow/react
+npm run dev         # restart the dev server
+```
+
 ## Project layout
 
 ```
@@ -206,17 +248,19 @@ src/
     page.tsx / gaia/      Home = Gaïa (both routes)
     api/
       auth/               login, logout, me, signup
-      gaia/               19 Gaïa routes (implementation)
-      v1/gaia/            19 versioned re-exports
+      gaia/               21 Gaïa routes (implementation)
+      v1/gaia/            21 versioned re-exports
   components/
     app/                  Providers, RouterSync, GaiaHome, GaiaShell, AuthScreen
-    gaia/                 the 10 Gaïa components (verbatim from Promethe,
-                          + gaia-memory.tsx, Phase 1 Memory)
+    gaia/                 the 11 Gaïa components (verbatim from Promethe,
+                          + gaia-memory.tsx (Phase 1 Memory),
+                          gaia-graph.tsx (Phase 2 Visual))
     ui/                   shadcn primitives used by Gaïa
   i18n/                   en-only config, dictionaries, provider
   lib/
     gaia/                 content, refs (trading kinds stubbed), templates, versioning,
-                          spaced-repetition (Phase 1 Memory, pure SM-2)
+                          spaced-repetition (Phase 1 Memory, pure SM-2),
+                          graph-layout (Phase 2 Visual, pure radial BFS)
     auth/                 password (scrypt), types, validators
     api-client, db, rate-limit, router, routes, utils
   server/
