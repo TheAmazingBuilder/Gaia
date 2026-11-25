@@ -156,13 +156,22 @@ Two errors seen live on localhost:3000, both fixed here:
 
 Gaïa has its own identity, separate from Promethe (no phoenix, no emerald).
 
-- **Logo — Möbius ribbon.** A hand-drawn SVG (no binary asset, so it stays
-  pushable): a Bernoulli lemniscate split into two halves at the centre
-  crossing, the under-strand carrying a small gap so the over-strand reads
-  as passing in front — that is the twist. The aurora gradient (coral
-  → violet → cyan) runs left to right in user space, continuous across the
-  paths. `src/components/gaia/gaia-logo.tsx` (`GaiaMark`, `GaiaWordmark`,
-  `GaiaBrand`), favicon `src/app/icon.svg` (Next serves it at `/icon.svg`).
+- **Logo — Möbius ribbon, the user's chosen 3D renders.** The in-app
+  logo is the real render, not a redraw: `public/brand/` holds
+  `mobius-app-icon.webp` (square 3D ribbon, home-screen icon),
+  `mobius-lockup-v2.webp` (horizontal lockup, 3:1, hero use),
+  `mobius-mono-v2.webp` (white 3D ribbon, single-colour contexts) and
+  `mobius-favicon-v2.webp` (reference asset). These are binary `.webp`,
+  so they cannot ride a snapshot push — they are dropped into the clone
+  from a PC (one manual step, see below). `src/components/gaia/gaia-logo.tsx`
+  (`GaiaMark`, `GaiaWordmark`, `GaiaBrand`, `GaiaLockup`) renders the
+  images in dark mode and falls back to a flat SVG lemniscate + JSX
+  wordmark in light mode (the renders have a dark background baked in)
+  or when an image is missing. Small sizes use the mark + wordmark as
+  components — the lockup image at 24 px would make the signature ï dots
+  unreadable; the full lockup image is reserved for hero sizes (login).
+  The live favicon is `src/app/icon.svg` — an SVG redraw of favicon v2
+  (Next.js metadata icons do not accept `.webp`).
 - **Wordmark.** "Gaïa" in Geist, the signature being the two dots of the ï:
   one coral, one cyan, on a dotless ı (U+0131), positioned in em so they
   scale with the font size.
@@ -184,9 +193,16 @@ Gaïa has its own identity, separate from Promethe (no phoenix, no emerald).
   label is always text, never the color alone.
 - **Apple touch icon.** Next only accepts `jpg`/`jpeg`/`png` for
   `apple-icon` (not `svg`, verified in its source), and binary files cannot
-  go through the snapshot push — so `apple-icon.png` (180×180, dark
-  background, rendered from `icon.svg`) lives in `~/workspace/gaia-brand/`
+  go through the snapshot push — so `apple-icon.png` (180×180, converted
+  from the chosen app-icon render) lives in `~/workspace/gaia-brand/kit/`
   and must be dropped into `src/app/apple-icon.png` from a PC.
+- **Brand images — manual step.** Copy `mobius-app-icon.webp`,
+  `mobius-lockup-v2.webp` and `mobius-mono-v2.webp` (from
+  `~/workspace/gaia-brand/kit/`) into `public/brand/`, then
+  `git add public/brand src/app/apple-icon.png && git commit -m "Brand:
+  chosen Mobius renders + apple touch icon" && git push`. Until the files
+  are in place, the logo spots show the flat SVG fallback, so nothing
+  ever renders broken.
 
 ## Phase 1 — Memory (18 Nov 2026, branch `Features-gaia`)
 

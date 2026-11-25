@@ -1,22 +1,31 @@
+"use client";
+
 import * as React from "react";
 
 /**
- * Gaïa brand — Möbius mark + wordmark (25 Nov 2026, user decisions).
+ * Gaïa brand — the user's chosen Möbius renders (25 Nov 2026).
  *
- * The mark is a Möbius ribbon drawn as a Bernoulli lemniscate: the band is
- * split into two halves at the centre crossing, and the under-strand has a
- * small gap so the over-strand reads as passing in front — that is the
- * twist. The aurora gradient (coral → violet → cyan) runs left to right in
- * user space, so the colour is continuous across the three paths.
- * The mark is hand-drawn SVG (no binary asset) so it stays pushable and
- * crisp at any size. The flat version matches the chosen favicon v2.
+ * The ribbon is the 3D render he chose, NOT a redraw. The images live in
+ * public/brand/ as binary .webp — they cannot ride a snapshot push, so
+ * they are dropped into the clone by hand (see README, "Branding").
+ *   - mobius-app-icon.webp — the square 3D ribbon (home-screen icon)
+ *   - mobius-lockup-v2.webp — the horizontal lockup (3:1), hero use
+ *   - mobius-mono-v2.webp — the white 3D ribbon, single-colour contexts
+ *   - mobius-favicon-v2.webp — reference asset; the live favicon is the
+ *     SVG redraw in src/app/icon.svg, because Next.js metadata icons do
+ *     not accept .webp
  *
- * The wordmark uses a dotless ı (U+0131) with two coloured dots — coral
- * then cyan — positioned in em units so they scale with the font size.
- * Violet lives in the logo only, never in UI chrome.
+ * The .webp renders have a dark background baked in, so they are used in
+ * dark mode only. In light mode — or if an image fails to load (the files
+ * are not in public/brand/ yet) — the flat SVG mark + JSX wordmark below
+ * take over: same lemniscate geometry, same aurora gradient, theme-aware.
+ *
+ * Small sizes use the mark + wordmark as components: the lockup image at
+ * 24 px tall would make the signature ï dots unreadable. The full lockup
+ * image is reserved for hero sizes (login screen).
  */
 
-// ── Möbius geometry (lemniscate, viewBox 0 0 120 64) ────────────────────────
+// ── Flat SVG fallback (lemniscate, viewBox 0 0 120 64) ──────────────────────
 // Half 1 (under-strand) is split around the centre crossing: the gap is the
 // twist. Half 2 (over-strand) is drawn on top, continuous.
 
@@ -35,12 +44,12 @@ const AURORA_STOPS = [
   { offset: "1", color: "#22D3EE" },
 ] as const;
 
-export function GaiaMark({
+/** Flat SVG Möbius — light-mode and missing-asset fallback. */
+function MarkSvg({
   className,
   variant = "aurora",
 }: {
   className?: string;
-  /** "aurora" — gradient ribbon. "mono" — currentColor, for dark surfaces. */
   variant?: "aurora" | "mono";
 }) {
   const gradientId = React.useId().replace(/:/g, "");
@@ -83,6 +92,42 @@ export function GaiaMark({
 }
 
 /**
+ * The Möbius mark: the chosen 3D render in dark mode (the square app icon
+ * for "aurora", the white ribbon for "mono"), the flat SVG in light mode
+ * or when the image is not in public/brand/ yet.
+ */
+export function GaiaMark({
+  className,
+  variant = "aurora",
+}: {
+  className?: string;
+  /** "aurora" — 3D ribbon. "mono" — white 3D ribbon, single-colour use. */
+  variant?: "aurora" | "mono";
+}) {
+  const [failed, setFailed] = React.useState(false);
+  if (failed) return <MarkSvg className={className} variant={variant} />;
+  const src =
+    variant === "mono"
+      ? "/brand/mobius-mono-v2.webp"
+      : "/brand/mobius-app-icon.webp";
+  return (
+    <>
+      <img
+        src={src}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        onError={() => setFailed(true)}
+        className={`hidden rounded-md dark:block ${className ?? ""}`}
+      />
+      <span className="dark:hidden">
+        <MarkSvg className={className} variant={variant} />
+      </span>
+    </>
+  );
+}
+
+/**
  * "Gaïa" in geometric sans (Geist), the signature being the two dots of
  * the ï — one coral, one cyan. The dots are sized and positioned in em so
  * they follow the surrounding font size. Screen readers get "Gaïa" via
@@ -104,7 +149,7 @@ export function GaiaWordmark({ className }: { className?: string }) {
   );
 }
 
-/** Horizontal lockup: Möbius mark + wordmark. */
+/** Horizontal lockup: Möbius mark + wordmark (small sizes). */
 export function GaiaBrand({
   className,
   markClassName,
@@ -121,5 +166,39 @@ export function GaiaBrand({
         className={wordmarkClassName ?? "text-base font-bold tracking-tight"}
       />
     </span>
+  );
+}
+
+/**
+ * The full horizontal lockup image (mark + wordmark, 3:1) — hero sizes
+ * only, e.g. the login screen. Falls back to GaiaBrand (mark + wordmark
+ * components) in light mode or when the image is not in public/brand/ yet.
+ */
+export function GaiaLockup({ className }: { className?: string }) {
+  const [failed, setFailed] = React.useState(false);
+  if (failed) {
+    return (
+      <GaiaBrand
+        markClassName="h-8 w-auto"
+        wordmarkClassName="text-3xl font-bold tracking-tight"
+      />
+    );
+  }
+  return (
+    <>
+      <img
+        src="/brand/mobius-lockup-v2.webp"
+        alt="Gaïa"
+        draggable={false}
+        onError={() => setFailed(true)}
+        className={`hidden dark:block ${className ?? ""}`}
+      />
+      <span className="dark:hidden">
+        <GaiaBrand
+          markClassName="h-8 w-auto"
+          wordmarkClassName="text-3xl font-bold tracking-tight"
+        />
+      </span>
+    </>
   );
 }
