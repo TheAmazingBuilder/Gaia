@@ -4,8 +4,8 @@
  * Gaïa — shared types, visuals and data layer.
  *
  * Replica of Euforia's Nofy shared module, renamed for Promethe: every
- * user-facing string goes through gaia.* i18n keys, hues are emerald/teal
- * (never Euforia's cobalt), and the API base is /api/v1/gaia.
+ * user-facing string goes through gaia.* i18n keys, hues are the Gaïa
+ * brand accents (never Euforia's cobalt), and the API base is /api/v1/gaia.
  */
 import * as React from "react";
 import {
@@ -252,20 +252,20 @@ export function gaiaErrorMessage(err: unknown): string {
   return "Error";
 }
 
-// ── Ref kinds: icon + hue (emerald/teal Promethe palette, never cobalt) ────
+// ── Ref kinds: icon + hue (Gaïa brand accents, never cobalt) ────
 
 export const GAIA_REF_META: Record<
   GaiaRefKind,
   { labelKey: string; icon: LucideIcon; hue: string }
 > = {
-  TRADE: { labelKey: "gaia.refKinds.trade", icon: CandlestickChart, hue: "#10b981" },
-  STRATEGY: { labelKey: "gaia.refKinds.strategy", icon: Swords, hue: "#14b8a6" },
-  SETUP: { labelKey: "gaia.refKinds.setup", icon: FlaskConical, hue: "#2dd4bf" },
+  TRADE: { labelKey: "gaia.refKinds.trade", icon: CandlestickChart, hue: "#FF6B5B" },
+  STRATEGY: { labelKey: "gaia.refKinds.strategy", icon: Swords, hue: "#22D3EE" },
+  SETUP: { labelKey: "gaia.refKinds.setup", icon: FlaskConical, hue: "#22D3EE" },
   RULE: { labelKey: "gaia.refKinds.rule", icon: ScrollText, hue: "#fb7185" },
   LESSON: { labelKey: "gaia.refKinds.lesson", icon: GraduationCap, hue: "#fbbf24" },
   EVENT: { labelKey: "gaia.refKinds.event", icon: Globe2, hue: "#f59e0b" },
-  SYMBOL: { labelKey: "gaia.refKinds.symbol", icon: NotebookText, hue: "#34d399" },
-  NOTE: { labelKey: "gaia.refKinds.note", icon: NotebookText, hue: "#5eead4" },
+  SYMBOL: { labelKey: "gaia.refKinds.symbol", icon: NotebookText, hue: "#22D3EE" },
+  NOTE: { labelKey: "gaia.refKinds.note", icon: NotebookText, hue: "#22D3EE" },
 };
 
 export const GAIA_REF_KINDS: GaiaRefKind[] = [
@@ -336,7 +336,7 @@ export function TagChip({
   title?: string;
 }) {
   const cls = active
-    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+    ? "border-brand-coral/40 bg-brand-coral/10 text-brand-coral-deep dark:text-brand-coral"
     : "border-border bg-muted text-muted-foreground";
   const inner = (
     <span
@@ -364,28 +364,29 @@ export function FolderChip({ name }: { name: string | null }) {
 }
 
 // ── Phase 1 — Memory: mastery badge ────────────────────────────────────────
-// Muted tones that fit the dark emerald theme (red-400 / orange-400 /
-// amber-300 / emerald-400 dots). The label is always text, never the
-// color alone — a screen reader and a colorblind user get the same info.
+// Mastery scale, cold → warm on the monochrome base: grey (forgotten),
+// cyan (fragile, medium), coral (mastered). The label is always text,
+// never the color alone — a screen reader and a colorblind user get the
+// same info.
 export const MASTERY_META: Record<
   MasteryLevel,
   { dot: string; chip: string }
 > = {
   forgotten: {
-    dot: "bg-red-400",
-    chip: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+    dot: "bg-zinc-500",
+    chip: "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
   },
   fragile: {
-    dot: "bg-orange-400",
-    chip: "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400",
+    dot: "bg-brand-cyan/60",
+    chip: "border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan-deep dark:text-brand-cyan/80",
   },
   medium: {
-    dot: "bg-amber-300",
-    chip: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    dot: "bg-brand-cyan",
+    chip: "border-brand-cyan/40 bg-brand-cyan/15 text-brand-cyan-deep dark:text-brand-cyan",
   },
   mastered: {
-    dot: "bg-emerald-400",
-    chip: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    dot: "bg-brand-coral",
+    chip: "border-brand-coral/30 bg-brand-coral/10 text-brand-coral-deep dark:text-brand-coral",
   },
 };
 

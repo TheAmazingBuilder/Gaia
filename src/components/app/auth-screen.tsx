@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { NotebookText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch, ApiClientError } from "@/lib/api-client";
+import { GaiaMark, GaiaWordmark } from "@/components/gaia/gaia-logo";
 
 /**
  * Sign-in / sign-up screen, shown when there is no session.
@@ -56,12 +56,11 @@ export function AuthScreen() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-4 py-10">
       <div className="rounded-xl border bg-card p-6 shadow-sm sm:p-8">
-        <div className="flex items-center gap-2">
-          <NotebookText
-            className="size-7 text-emerald-600 dark:text-emerald-400"
-            aria-hidden="true"
-          />
-          <h1 className="text-2xl font-bold tracking-tight">Gaïa</h1>
+        <div className="flex items-center gap-2.5">
+          <GaiaMark className="h-7 w-auto shrink-0" />
+          <h1 className="text-2xl">
+            <GaiaWordmark className="font-bold tracking-tight" />
+          </h1>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
           Your personal knowledge workspace: notes, ideas, research and

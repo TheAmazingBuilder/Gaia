@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, NotebookText } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api-client";
 import { GaiaView } from "@/components/gaia/gaia-view";
+import { GaiaBrand } from "@/components/gaia/gaia-logo";
 
 /**
  * Minimal shell: a slim top bar (brand + signed-in user + sign out) above
@@ -37,13 +38,7 @@ export function GaiaShell({
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-2">
-            <NotebookText
-              className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400"
-              aria-hidden="true"
-            />
-            <span className="truncate text-base font-bold tracking-tight">
-              Gaïa
-            </span>
+            <GaiaBrand />
             <span className="hidden text-xs text-muted-foreground sm:inline">
               Your personal knowledge workspace
             </span>

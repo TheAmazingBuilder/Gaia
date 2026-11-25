@@ -110,7 +110,7 @@ export function RefPickerDialog({
                 onClick={() => setKindFilter(k)}
                 className={`rounded-md border px-2 py-1 text-xs transition-colors ${
                   active
-                    ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                    ? "border-brand-coral/50 bg-brand-coral/10 text-brand-coral-deep dark:text-brand-coral"
                     : "border-border bg-card text-muted-foreground"
                 }`}
               >
@@ -160,7 +160,7 @@ export function RefPickerDialog({
                       onMouseEnter={() => setActiveIndex(i)}
                       onClick={() => choose(hit)}
                       className={`flex w-full items-center gap-2.5 px-3 py-2 text-left ${
-                        i === activeIndex ? "bg-emerald-500/10" : ""
+                        i === activeIndex ? "bg-brand-coral/10" : ""
                       }`}
                     >
                       <Icon className="size-4 shrink-0" style={{ color: meta.hue }} aria-hidden="true" />
@@ -211,7 +211,7 @@ export function VersionsDialog({
       <DialogContent className="max-w-md" data-testid="gaia-versions-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <History className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+            <History className="size-4 text-brand-cyan-deep dark:text-brand-cyan" aria-hidden="true" />
             {t("gaia.dialogs.versionsTitle")}
           </DialogTitle>
           <DialogDescription>{t("gaia.dialogs.versionsBody")}</DialogDescription>
@@ -305,7 +305,7 @@ export function IconPicker({
                 setOpen(false);
               }}
               className={`flex size-9 items-center justify-center rounded-md text-lg hover:bg-muted ${
-                (icon ?? "📝") === emoji ? "bg-emerald-500/15" : ""
+                (icon ?? "📝") === emoji ? "bg-brand-coral/15" : ""
               }`}
             >
               {emoji}

@@ -64,10 +64,10 @@ import {
 
 /** Hex twins of the Phase 1 mastery dots (for MiniMap + edge colors). */
 const MASTERY_HEX: Record<MasteryLevel, string> = {
-  forgotten: "#f87171",
-  fragile: "#fb923c",
-  medium: "#fcd34d",
-  mastered: "#34d399",
+  forgotten: "#6B7280",
+  fragile: "#67E8F9",
+  medium: "#22D3EE",
+  mastered: "#FF6B5B",
 };
 
 type MemoryNodeData = {
@@ -107,7 +107,7 @@ function MemoryNode({ data, selected }: NodeProps<MemoryNodeType>) {
   return (
     <div
       className={`flex max-w-56 items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm ${
-        selected ? "ring-2 ring-emerald-500" : meta.chip
+        selected ? "ring-2 ring-brand-coral" : meta.chip
       }`}
     >
       <Handle
@@ -228,7 +228,7 @@ export function GraphPanel({
         style:
           e.kind === "tag"
             ? { stroke: "#94a3b8", strokeWidth: 1, strokeDasharray: "5 4" }
-            : { stroke: "#10b981", strokeWidth: 1.5 },
+            : { stroke: "#22D3EE", strokeWidth: 1.5 },
         label: e.kind === "tag" ? e.tagName : undefined,
       })),
     [nodesData],
@@ -331,7 +331,7 @@ export function GraphPanel({
                 type="button"
                 aria-label={t("gaia.graph.clearSearch")}
                 onClick={() => setQuery("")}
-                className="absolute right-1 top-1/2 flex min-h-9 min-w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-emerald-500"
+                className="absolute right-1 top-1/2 flex min-h-9 min-w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-brand-cyan"
               >
                 <X className="size-4" aria-hidden="true" />
               </button>
@@ -347,7 +347,7 @@ export function GraphPanel({
                 onClick={() =>
                   setHiddenMastery((prev) => ({ ...prev, [level]: !prev[level] }))
                 }
-                className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-emerald-500 ${
+                className={`inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-brand-cyan ${
                   visible
                     ? "border-border bg-muted"
                     : "border-border bg-transparent text-muted-foreground opacity-60"
@@ -366,7 +366,7 @@ export function GraphPanel({
               type="checkbox"
               checked={showTagLinks}
               onChange={(e) => setShowTagLinks(e.target.checked)}
-              className="size-4 accent-emerald-500"
+              className="size-4 accent-brand-cyan"
             />
             {t("gaia.graph.showTagLinks")}
           </label>
@@ -374,7 +374,7 @@ export function GraphPanel({
         <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <svg width="20" height="6" aria-hidden="true">
-              <line x1="0" y1="3" x2="20" y2="3" stroke="#10b981" strokeWidth="2" />
+              <line x1="0" y1="3" x2="20" y2="3" stroke="#22D3EE" strokeWidth="2" />
             </svg>
             {t("gaia.graph.refLinks", { count: refEdgeCount })}
           </span>
@@ -453,7 +453,7 @@ export function GraphPanel({
                     type="button"
                     aria-expanded={open}
                     onClick={() => toggleMonth(month.month)}
-                    className="flex min-h-11 w-full items-center gap-2 px-3 text-left focus-visible:outline-2 focus-visible:outline-emerald-500"
+                    className="flex min-h-11 w-full items-center gap-2 px-3 text-left focus-visible:outline-2 focus-visible:outline-brand-cyan"
                   >
                     <ChevronDown
                       className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
@@ -471,7 +471,7 @@ export function GraphPanel({
                           <button
                             type="button"
                             onClick={() => onOpenNote(note.id)}
-                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-emerald-500"
+                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-brand-cyan"
                           >
                             <span
                               className={`size-2 shrink-0 rounded-full ${MASTERY_META[note.mastery].dot}`}
@@ -508,7 +508,7 @@ export function GraphPanel({
       {/* ── Daily journal ── */}
       <section className="rounded-xl border bg-card p-4">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <CalendarDays className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+          <CalendarDays className="size-4 text-brand-cyan-deep dark:text-brand-cyan" aria-hidden="true" />
           {t("gaia.graph.journalTitle")}
         </h2>
         <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

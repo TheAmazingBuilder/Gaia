@@ -205,7 +205,7 @@ export function GaiaSlashMenu({
                       data-active={active}
                       data-testid="gaia-slash-item"
                       className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${
-                        active ? "bg-emerald-500/10" : ""
+                        active ? "bg-brand-coral/10" : ""
                       }`}
                       onMouseEnter={() => onActiveChange(idx)}
                       onClick={() => onSelect(item)}
@@ -404,8 +404,8 @@ const CALLOUT_TONES: Array<{
   icon: typeof Info;
   hue: string;
 }> = [
-  { tone: "info", icon: Info, hue: "#14b8a6" },
-  { tone: "tip", icon: Lightbulb, hue: "#10b981" },
+  { tone: "info", icon: Info, hue: "#22D3EE" },
+  { tone: "tip", icon: Lightbulb, hue: "#FF6B5B" },
   { tone: "warn", icon: AlertTriangle, hue: "#f59e0b" },
   { tone: "risk", icon: ShieldAlert, hue: "#fb7185" },
 ];
@@ -489,7 +489,7 @@ function ImageBlock({
     return (
       <div
         data-testid="gaia-image-empty"
-        className={`rounded-md border border-dashed bg-muted/40 p-3 ${dragOver ? "border-emerald-500/60" : ""}`}
+        className={`rounded-md border border-dashed bg-muted/40 p-3 ${dragOver ? "border-brand-cyan/60" : ""}`}
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
@@ -838,7 +838,7 @@ export function GaiaBlockRow({
             onChange={(e) => ops.updateBlock(block.id, { checked: e.target.checked })}
             data-testid="gaia-todo-check"
             aria-label={t("gaia.blocks.toggleTodo")}
-            className="mt-2.5 size-3.5 shrink-0 accent-emerald-600"
+            className="mt-2.5 size-3.5 shrink-0 accent-brand-cyan"
           />
           <div className={`min-w-0 flex-1 ${block.checked ? "opacity-60" : ""}`}>
             <TextBlockBody block={block} ops={ops} t={t} />
@@ -873,10 +873,10 @@ export function GaiaBlockRow({
       }}
     >
       {showAbove ? (
-        <span className="absolute inset-x-0 top-[-2px] h-0.5 bg-emerald-500" aria-hidden="true" />
+        <span className="absolute inset-x-0 top-[-2px] h-0.5 bg-brand-cyan" aria-hidden="true" />
       ) : null}
       {showBelow ? (
-        <span className="absolute inset-x-0 bottom-[-2px] h-0.5 bg-emerald-500" aria-hidden="true" />
+        <span className="absolute inset-x-0 bottom-[-2px] h-0.5 bg-brand-cyan" aria-hidden="true" />
       ) : null}
       <div className="flex w-6 shrink-0 flex-col items-center pt-1 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
         <span

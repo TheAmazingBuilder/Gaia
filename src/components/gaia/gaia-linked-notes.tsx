@@ -105,7 +105,7 @@ export function GaiaLinkedNotesSection({
                   {gaiaRelativeTime(note.updatedAt, tr)}
                 </span>
                 <ArrowUpRight
-                  className="size-3.5 shrink-0 text-muted-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400"
+                  className="size-3.5 shrink-0 text-muted-foreground group-hover:text-brand-cyan-deep dark:group-hover:text-brand-cyan"
                   aria-hidden="true"
                 />
               </button>

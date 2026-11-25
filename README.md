@@ -7,8 +7,8 @@ versions and links between notes.
 - **Code name:** `gaia` (repo / package) — **display name:** Gaïa (in the UI).
 - **Stack:** Next.js 16, React 19, Tailwind CSS 4, Prisma 6, TypeScript, shadcn/ui.
 - **Language:** English only (same decision as Promethe, 17 Nov 2026).
-- **Theme:** dark emerald/teal by default (same palette as Promethe), light
-  mode available via the theme provider.
+- **Theme:** dark monochrome by default (own brand, 25 Nov 2026 — see
+  "Branding" below), light mode available via the theme provider.
 - **Tagline:** "Your personal knowledge workspace: notes, ideas, research and
   documentation, linked to your notes."
 
@@ -151,6 +151,42 @@ Two errors seen live on localhost:3000, both fixed here:
   ran before the URL changed and nothing re-synced after. `useRoute`
   (`src/lib/router.ts`) now uses `useSearchParams()`, reactive by
   construction; the Suspense boundary for it is in `gaia-home.tsx`.
+
+## Branding — 25 Nov 2026 (branch `Features-gaia`)
+
+Gaïa has its own identity, separate from Promethe (no phoenix, no emerald).
+
+- **Logo — Möbius ribbon.** A hand-drawn SVG (no binary asset, so it stays
+  pushable): a Bernoulli lemniscate split into two halves at the centre
+  crossing, the under-strand carrying a small gap so the over-strand reads
+  as passing in front — that is the twist. The aurora gradient (coral
+  → violet → cyan) runs left to right in user space, continuous across the
+  paths. `src/components/gaia/gaia-logo.tsx` (`GaiaMark`, `GaiaWordmark`,
+  `GaiaBrand`), favicon `src/app/icon.svg` (Next serves it at `/icon.svg`).
+- **Wordmark.** "Gaïa" in Geist, the signature being the two dots of the ï:
+  one coral, one cyan, on a dotless ı (U+0131), positioned in em so they
+  scale with the font size.
+- **Palette (dark default).** Monochrome base — fond `#0A0A12`, surface
+  `#14141F`, texte `#FFFFFF`, texte secondaire `#9BA1B0` — plus two
+  role-based accents. **Cyan `#22D3EE`** = what you can click: primary
+  buttons, links, focus rings, success. **Coral `#FF6B5B`** = where you
+  are: active tab/note, badges, the ï dots. **Violet `#8B5CF6`** lives in
+  the logo only, never in UI chrome. Rose stays destructive-only.
+  Filled cyan/coral surfaces always take dark text (`#0A0A12`): white on
+  either accent fails contrast (cyan on white is 1.8:1, so light-mode
+  accent text uses the deep variants `--color-brand-cyan-deep #0E7490`
+  and `--color-brand-coral-deep #C93A2B`, both ≥ 4.5:1 on white).
+  Tokens in `globals.css` (`@theme`: `brand-coral`, `brand-coral-deep`,
+  `brand-cyan`, `brand-cyan-deep`, `brand-violet`, `brand-ink`); `--primary`,
+  `--ring` and `--gain` are cyan in both themes.
+- **Mastery scale (Memory).** Cold → warm on the monochrome base:
+  forgotten grey, fragile cyan (dim), medium cyan, mastered coral — the
+  label is always text, never the color alone.
+- **Apple touch icon.** Next only accepts `jpg`/`jpeg`/`png` for
+  `apple-icon` (not `svg`, verified in its source), and binary files cannot
+  go through the snapshot push — so `apple-icon.png` (180×180, dark
+  background, rendered from `icon.svg`) lives in `~/workspace/gaia-brand/`
+  and must be dropped into `src/app/apple-icon.png` from a PC.
 
 ## Phase 1 — Memory (18 Nov 2026, branch `Features-gaia`)
 

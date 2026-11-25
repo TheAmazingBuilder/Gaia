@@ -305,7 +305,7 @@ export function NotesBrowser({
             aria-label={t("gaia.notes.listView")}
             title={t("gaia.notes.listView")}
             onClick={() => setLayout("list")}
-            className={`rounded-l-md p-2 ${layout === "list" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
+            className={`rounded-l-md p-2 ${layout === "list" ? "bg-brand-coral/15 text-brand-coral-deep dark:text-brand-coral" : "text-muted-foreground"}`}
           >
             <List className="size-4" aria-hidden="true" />
           </button>
@@ -315,7 +315,7 @@ export function NotesBrowser({
             aria-label={t("gaia.notes.gridView")}
             title={t("gaia.notes.gridView")}
             onClick={() => setLayout("grid")}
-            className={`rounded-r-md p-2 ${layout === "grid" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
+            className={`rounded-r-md p-2 ${layout === "grid" ? "bg-brand-coral/15 text-brand-coral-deep dark:text-brand-coral" : "text-muted-foreground"}`}
           >
             <Grid2x2 className="size-4" aria-hidden="true" />
           </button>
@@ -323,7 +323,7 @@ export function NotesBrowser({
         <Button
           type="button"
           data-testid="gaia-new-note"
-          className="h-9 bg-emerald-600 text-white hover:bg-emerald-500"
+          className="h-9 bg-brand-cyan text-brand-ink hover:bg-brand-cyan/85"
           onClick={() =>
             onCreateNote(params.view === "folder" ? params.folderId : null)
           }
@@ -413,7 +413,7 @@ export function NotesBrowser({
                     {note.refCount > 0 ? (
                       <span
                         title={t("gaia.notes.refs")}
-                        className="shrink-0 rounded-sm border border-emerald-500/30 bg-emerald-500/10 px-1 font-mono text-[10px] text-emerald-700 dark:text-emerald-400"
+                        className="shrink-0 rounded-sm border border-brand-coral/30 bg-brand-coral/10 px-1 font-mono text-[10px] text-brand-coral-deep dark:text-brand-coral"
                       >
                         {note.refCount} {note.refCount === 1 ? t("gaia.shared.refOne") : t("gaia.shared.refMany")}
                       </span>
@@ -452,7 +452,7 @@ export function NotesBrowser({
               onKeyDown={(e) => {
                 if (e.key === "Enter") onOpenNote(note.id);
               }}
-              className="group cursor-pointer rounded-lg border bg-card p-4 hover:border-emerald-500/40 hover:bg-muted/30"
+              className="group cursor-pointer rounded-lg border bg-card p-4 hover:border-brand-cyan/40 hover:bg-muted/30"
             >
               <div className="flex items-start gap-2">
                 <span className="text-lg leading-none" aria-hidden="true">

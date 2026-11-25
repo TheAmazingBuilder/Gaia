@@ -41,6 +41,7 @@ import {
   type GaiaT,
 } from "./gaia-shared";
 import { NotesBrowser } from "./gaia-notes";
+import { GaiaMark, GaiaWordmark } from "./gaia-logo";
 import { FoldersPanel, OverviewPanel, TemplatesPanel, TrashPanel } from "./gaia-panels";
 import { MemoryPanel } from "./gaia-memory";
 import { GraphPanel } from "./gaia-graph";
@@ -215,11 +216,8 @@ export function GaiaView() {
           <PageHeader
             title={
               <span className="inline-flex items-center gap-2">
-                <NotebookText
-                  className="size-6 text-emerald-600 dark:text-emerald-400 sm:size-7"
-                  aria-hidden="true"
-                />
-                Gaïa
+                <GaiaMark className="h-6 w-auto sm:h-7" />
+                <GaiaWordmark className="font-bold tracking-tight" />
               </span>
             }
             description={t("gaia.view.tagline")}
@@ -230,7 +228,7 @@ export function GaiaView() {
             {overviewQuery.data ? (
               <span
                 data-testid="gaia-note-count"
-                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-400"
+                className="inline-flex items-center gap-1.5 rounded-md border border-brand-coral/30 bg-brand-coral/10 px-2.5 py-1 text-xs text-brand-coral-deep dark:text-brand-coral"
               >
                 <span className="font-mono font-semibold tabular-nums">
                   {overviewQuery.data.totals.notes}
@@ -261,7 +259,7 @@ export function GaiaView() {
                 key={tab.id}
                 value={tab.id}
                 data-testid={`gaia-tab-${tab.id}`}
-                className="data-[state=active]:bg-emerald-500/15 data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-400"
+                className="data-[state=active]:bg-brand-coral/15 data-[state=active]:text-brand-coral-deep dark:data-[state=active]:text-brand-coral"
               >
                 <tab.icon className="size-4" aria-hidden="true" />
                 {t(`gaia.view.tabs.${tab.id}`)}

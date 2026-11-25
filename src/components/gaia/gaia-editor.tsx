@@ -736,7 +736,7 @@ export function GaiaEditor({
       : status === "dirty"
         ? "bg-amber-400"
         : status === "saving"
-          ? "animate-pulse bg-emerald-500"
+          ? "animate-pulse bg-brand-cyan"
           : "bg-loss";
   const statusLabel =
     status === "saved"
@@ -1007,7 +1007,7 @@ export function GaiaEditor({
                       onClick={() =>
                         applyDraft((d) => ({ ...d, tagIds: d.tagIds.filter((id) => id !== tag.id) }))
                       }
-                      className="inline-flex items-center gap-1 rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-400"
+                      className="inline-flex items-center gap-1 rounded-sm border border-brand-coral/40 bg-brand-coral/10 px-1.5 py-0.5 text-[11px] text-brand-coral-deep dark:text-brand-coral"
                     >
                       #{tag.name}
                       <X className="size-3" aria-hidden="true" />
@@ -1045,8 +1045,8 @@ export function GaiaEditor({
               title={`${t("gaia.shared.createdFromLesson")} "${serverNote.lessonRef.lessonTitle}" (${serverNote.lessonRef.courseTitle})`}
               className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs"
               style={{
-                borderColor: "color-mix(in srgb, #14b8a6 35%, transparent)",
-                background: "color-mix(in srgb, #14b8a6 10%, transparent)",
+                borderColor: "color-mix(in srgb, #FF6B5B 35%, transparent)",
+                background: "color-mix(in srgb, #FF6B5B 10%, transparent)",
               }}
             >
               {serverNote.lessonRef.lessonTitle} · {serverNote.lessonRef.courseTitle}

@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#10b981",
+  themeColor: "#0A0A12",
 };
 
 /** App locale — English only (same decision as Promethe, 17 Nov 2026). */

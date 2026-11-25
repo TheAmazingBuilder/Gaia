@@ -164,7 +164,7 @@ export function OverviewPanel({
         <Button
           type="button"
           data-testid="gaia-quick-new-note"
-          className="bg-emerald-600 text-white hover:bg-emerald-500"
+          className="bg-brand-cyan text-brand-ink hover:bg-brand-cyan/85"
           onClick={() => onCreateNote(null)}
         >
           <Plus className="size-4" aria-hidden="true" />
@@ -288,11 +288,11 @@ export function OverviewPanel({
                   title={`${week.weekStart}: ${week.created} ${t("gaia.overview.legendCreated")}, ${week.edited} ${t("gaia.overview.legendEdited")}`}
                 >
                   <div
-                    className="w-full bg-emerald-500/70"
+                    className="w-full bg-brand-cyan/70"
                     style={{ height: `${Math.round((week.edited / maxActivity) * 100)}%` }}
                   />
                   <div
-                    className="w-full bg-emerald-500"
+                    className="w-full bg-brand-cyan"
                     style={{ height: `${Math.round((week.created / maxActivity) * 100)}%` }}
                   />
                 </div>
@@ -304,11 +304,11 @@ export function OverviewPanel({
           </div>
           <div className="mt-2 flex gap-3 text-[10px] text-muted-foreground">
             <span className="inline-flex items-center gap-1">
-              <span className="size-2 rounded-sm bg-emerald-500" aria-hidden="true" />
+              <span className="size-2 rounded-sm bg-brand-cyan" aria-hidden="true" />
               {t("gaia.overview.legendCreated")}
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="size-2 rounded-sm bg-emerald-500/70" aria-hidden="true" />
+              <span className="size-2 rounded-sm bg-brand-cyan/70" aria-hidden="true" />
               {t("gaia.overview.legendEdited")}
             </span>
           </div>
@@ -384,7 +384,7 @@ export function FoldersPanel({
           data-testid="gaia-folder-create"
           disabled={name.trim() === "" || createFolder.isPending}
           onClick={create}
-          className="bg-emerald-600 text-white hover:bg-emerald-500"
+          className="bg-brand-cyan text-brand-ink hover:bg-brand-cyan/85"
         >
           <Plus className="size-4" aria-hidden="true" />
           {t("gaia.folders.create")}
@@ -410,7 +410,7 @@ export function FoldersPanel({
             <div
               key={folder.id}
               data-testid="gaia-folder-card"
-              className="group rounded-lg border bg-card p-4 hover:border-emerald-500/40"
+              className="group rounded-lg border bg-card p-4 hover:border-brand-cyan/40"
             >
               <div className="flex items-start gap-2">
                 <button

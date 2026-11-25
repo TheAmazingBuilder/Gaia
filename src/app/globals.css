@@ -43,6 +43,24 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ── Gaïa brand (25 Nov 2026) ───────────────────────────────────────────────
+ * Monochrome base + two role-based accents. Coral = "where you are"
+ * (active tab/note, badges, the ï dots). Cyan = "what you can click"
+ * (primary buttons, links, focus rings, success). Violet lives in the
+ * logo only, never in UI chrome. Deep variants pass WCAG AA (≥ 4.5:1) as
+ * text on white in the light theme; the base tones are for dark surfaces
+ * and fills. Filled cyan/coral surfaces always take dark text (#0A0A12):
+ * white on either accent fails contrast.
+ */
+@theme {
+  --color-brand-coral: #ff6b5b;
+  --color-brand-coral-deep: #c93a2b;
+  --color-brand-cyan: #22d3ee;
+  --color-brand-cyan-deep: #0e7490;
+  --color-brand-violet: #8b5cf6;
+  --color-brand-ink: #0a0a12;
+}
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -51,8 +69,8 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.797 0.134 211.5);
+  --primary-foreground: oklch(0.149 0.017 284.1);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -64,7 +82,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.797 0.134 211.5);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -81,24 +99,24 @@
 }
 
 .dark {
-  --background: oklch(0.17 0 0);
+  --background: oklch(0.149 0.017 284.1);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.225 0 0);
+  --card: oklch(0.197 0.022 284.2);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.225 0 0);
+  --popover: oklch(0.197 0.022 284.2);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.27 0 0);
+  --primary: oklch(0.797 0.134 211.5);
+  --primary-foreground: oklch(0.149 0.017 284.1);
+  --secondary: oklch(0.27 0.017 284.1);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.27 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.27 0 0);
+  --muted: oklch(0.27 0.017 284.1);
+  --muted-foreground: oklch(0.709 0.023 268.3);
+  --accent: oklch(0.27 0.017 284.1);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.797 0.134 211.5);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -139,12 +157,12 @@ html.dark {
  * h-10 w-full rounded-md border bg-background px-3 font-mono text-sm
  * tabular-nums plus a focus ring. The rules below reproduce that look for
  * EVERY date input in the app at once, using the project tokens. The
- * emerald focus outline comes from --gain (never cobalt, never gold).
+ * cyan focus outline comes from --gain (never cobalt, never gold).
  * Per-field classNames (h-10, or h-8 w-32 for From/To filters) refine
  * height and width where needed; Tailwind utilities win over these
  * element selectors by specificity.
  * On focus, the gray shadcn ring is suppressed (box-shadow: none) so the
- * single visible indicator is the emerald outline.
+ * single visible indicator is the cyan outline.
  * ─────────────────────────────────────────────────────────────────────────── */
 input[type="date"],
 input[type="datetime-local"] {
@@ -194,17 +212,17 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
  * tests/unit/no-hardcoded-pnl-colors.test.ts.
  */
 :root {
-  --gain: oklch(0.645 0.15 160); /* emerald-ish 600 */
+  --gain: oklch(0.797 0.134 211.5); /* brand cyan */
   --loss: oklch(0.585 0.19 15); /* rose-ish 600 */
   --neutral: oklch(0.556 0 0);
   /* Readable-on-background text tones (darker in light theme).
    * M8 Phase 5: gain-fg darkened 0.51→0.45 — the old value was ~4.2:1 on
    * white, below the 4.5:1 AA threshold for small text. */
-  --gain-fg: oklch(0.45 0.12 160);
+  --gain-fg: oklch(0.45 0.12 211.5);
   --loss-fg: oklch(0.505 0.17 15);
   --neutral-fg: oklch(0.556 0 0);
-  /* Solid-chip foreground (white on the saturated mid tones). */
-  --gain-solid-fg: oklch(0.985 0 0);
+  /* Solid-chip foreground (dark ink on the saturated cyan; white on rose). */
+  --gain-solid-fg: oklch(0.149 0.017 284.1);
   --loss-solid-fg: oklch(0.985 0 0);
   --gain-bg: color-mix(in oklab, var(--gain) 12%, transparent);
   --loss-bg: color-mix(in oklab, var(--loss) 12%, transparent);
@@ -213,11 +231,11 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 }
 
 .dark {
-  --gain: oklch(0.765 0.145 163);
+  --gain: oklch(0.797 0.134 211.5);
   --loss: oklch(0.712 0.185 15);
-  --gain-fg: oklch(0.8 0.14 163);
+  --gain-fg: oklch(0.8 0.14 211.5);
   --loss-fg: oklch(0.755 0.16 15);
-  --gain-solid-fg: oklch(0.17 0.04 163);
+  --gain-solid-fg: oklch(0.149 0.017 284.1);
   --loss-solid-fg: oklch(0.2 0.05 15);
 }
 

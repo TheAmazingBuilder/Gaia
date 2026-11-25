@@ -240,7 +240,7 @@ export function NotePrintDialog({
           <Button
             type="button"
             data-testid="gaia-print-button"
-            className="bg-emerald-600 text-white hover:bg-emerald-500"
+            className="bg-brand-cyan text-brand-ink hover:bg-brand-cyan/85"
             onClick={() => {
               window.print();
               setTimeout(() => document.body.classList.remove("printing-gaia"), 400);

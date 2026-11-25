@@ -106,7 +106,7 @@ function ScoreRing({ score }: { score: number }) {
           fill="none"
           strokeWidth="8"
           strokeLinecap="round"
-          className="stroke-emerald-500"
+          className="stroke-brand-cyan"
           strokeDasharray={c}
           strokeDashoffset={c * (1 - score / 100)}
         />
@@ -196,7 +196,7 @@ function MemoryCard({
         e.dataTransfer.setData("text/plain", note.id);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="group cursor-grab rounded-lg border bg-card p-3 hover:border-emerald-500/40 hover:bg-muted/30 active:cursor-grabbing"
+      className="group cursor-grab rounded-lg border bg-card p-3 hover:border-brand-cyan/40 hover:bg-muted/30 active:cursor-grabbing"
     >
       <div className="flex items-start gap-2">
         <span className="text-base leading-none" aria-hidden="true">
@@ -211,7 +211,7 @@ function MemoryCard({
               type="button"
               aria-label={t("gaia.memory.moveTo")}
               onClick={(e) => e.stopPropagation()}
-              className="min-h-11 min-w-11 shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-emerald-500"
+              className="min-h-11 min-w-11 shrink-0 rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-brand-cyan"
             >
               <MoreVertical className="size-4" aria-hidden="true" />
             </button>
@@ -277,7 +277,7 @@ function MemoryCard({
                 type="button"
                 disabled={reviewNote.isPending}
                 onClick={() => handleReview(grade.quality)}
-                className="min-h-11 rounded-md border bg-muted/50 px-1 text-xs font-medium hover:bg-emerald-500/15 hover:text-emerald-700 focus-visible:outline-2 focus-visible:outline-emerald-500 disabled:opacity-50 dark:hover:text-emerald-400"
+                className="min-h-11 rounded-md border bg-muted/50 px-1 text-xs font-medium hover:bg-brand-cyan/15 hover:text-brand-cyan-deep focus-visible:outline-2 focus-visible:outline-brand-cyan disabled:opacity-50 dark:hover:text-brand-cyan"
               >
                 {t(`gaia.memory.qualities.${grade.key}`)}
               </button>
@@ -382,7 +382,7 @@ function MemoryColumn({
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
       className={`flex w-[280px] shrink-0 snap-start flex-col rounded-xl border bg-muted/30 p-3 sm:min-w-0 sm:flex-1 ${
-        dragOver ? "border-emerald-500/60 ring-2 ring-emerald-500/30" : ""
+        dragOver ? "border-brand-cyan/60 ring-2 ring-brand-cyan/30" : ""
       }`}
     >
       <header className="flex items-center gap-2 px-1 pb-2">
@@ -434,10 +434,10 @@ function heatLevel(total: number): number {
 
 const HEAT_CLASSES = [
   "bg-muted",
-  "bg-emerald-500/25",
-  "bg-emerald-500/50",
-  "bg-emerald-500/75",
-  "bg-emerald-500",
+  "bg-brand-cyan/25",
+  "bg-brand-cyan/50",
+  "bg-brand-cyan/75",
+  "bg-brand-cyan",
 ];
 
 function MemoryHeatmap({
@@ -599,9 +599,9 @@ export function MemoryPanel({
               type="button"
               aria-pressed={groupBy === "mastery"}
               onClick={() => setGroupBy("mastery")}
-              className={`min-h-9 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-emerald-500 ${
+              className={`min-h-9 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-brand-cyan ${
                 groupBy === "mastery"
-                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  ? "bg-brand-coral/15 text-brand-coral-deep dark:text-brand-coral"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -611,9 +611,9 @@ export function MemoryPanel({
               type="button"
               aria-pressed={groupBy === "time"}
               onClick={() => setGroupBy("time")}
-              className={`min-h-9 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-emerald-500 ${
+              className={`min-h-9 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-brand-cyan ${
                 groupBy === "time"
-                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  ? "bg-brand-coral/15 text-brand-coral-deep dark:text-brand-coral"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
