@@ -21,6 +21,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { apiFetch, ApiClientError } from "@/lib/api-client";
+import { parseInlineSegments } from "@/lib/gaia/inline";
 import { parseHash, routeToPath } from "@/lib/routes";
 import {
   type MasteryLevel,
@@ -44,7 +45,33 @@ export type GaiaBlockType =
   | "code"
   | "table"
   | "image"
-  | "ref";
+  | "ref"
+  // Module 1 — Advanced Editor.
+  | "toggle"
+  | "columns"
+  | "equation"
+  | "drawing"
+  | "mermaid"
+  | "embed"
+  | "toc"
+  | "synced";
+
+export type GaiaTableColType = "text" | "number" | "date" | "checkbox";
+
+export interface GaiaTableMeta {
+  sortBy?: number;
+  sortDir?: "asc" | "desc";
+  colTypes?: GaiaTableColType[];
+}
+
+export interface GaiaBlockComment {
+  id: string;
+  author: string;
+  text: string;
+  /** Optionnels côté serveur (schéma Zod) : aligné avec content.ts. */
+  createdAt?: string;
+  resolved?: boolean;
+}
 
 export type GaiaCalloutTone = "info" | "tip" | "warn" | "risk";
 
@@ -77,7 +104,46 @@ export interface GaiaBlock {
   caption?: string;
   rows?: string[][];
   ref?: GaiaBlockRef;
+  /** Module 1 : enfants imbriqués (toggle, listes hiérarchiques). */
+  children?: GaiaBlock[];
+  /** Module 1 : colonnes (2–3 listes de blocs). */
+  columns?: GaiaBlock[][];
+  /** Module 1 : toggle replié. */
+  collapsed?: boolean;
+  /** Module 1 : groupe de blocs synchronisés. */
+  syncId?: string;
+  /** Module 1 : commentaires du bloc. */
+  comments?: GaiaBlockComment[];
+  /** Module 1 : tri + types de colonnes du tableau. */
+  tableMeta?: GaiaTableMeta;
 }
+
+/** Module 1 — couverture de note : image (URL ou data URL) ou dégradé. */
+export type GaiaCover = { kind: "image" | "gradient"; value: string };
+
+export function parseGaiaCover(stored: string | null | undefined): GaiaCover | null {
+  if (!stored) return null;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const c = parsed as Record<string, unknown>;
+    if ((c.kind === "image" || c.kind === "gradient") && typeof c.value === "string") {
+      return { kind: c.kind, value: c.value };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dégradés de couverture (palette Aurore, jamais d'image externe). */
+export const GAIA_COVER_GRADIENTS: Array<{ id: string; css: string; label: string }> = [
+  { id: "aurora", css: "linear-gradient(120deg, #FF6B5B 0%, #8B5CF6 55%, #22D3EE 100%)", label: "Aurora" },
+  { id: "ember", css: "linear-gradient(120deg, #FF6B5B 0%, #F59E0B 100%)", label: "Ember" },
+  { id: "lagoon", css: "linear-gradient(120deg, #0E7490 0%, #22D3EE 100%)", label: "Lagoon" },
+  { id: "violet", css: "linear-gradient(120deg, #6D28D9 0%, #8B5CF6 60%, #EC4899 100%)", label: "Violet" },
+  { id: "ink", css: "linear-gradient(120deg, #1F2937 0%, #0A0A12 100%)", label: "Ink" },
+];
 
 export interface GaiaLessonRef {
   courseId: string;
@@ -97,6 +163,10 @@ export interface GaiaNote {
   templateId: string | null;
   lessonRef: GaiaLessonRef | null;
   blocks: GaiaBlock[];
+  /** Module 1 : couverture (JSON sérialisé, null = aucune). */
+  cover: string | null;
+  /** Module 1 : objectif d'écriture de la note (mots), null = aucun. */
+  wordGoal: number | null;
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -126,6 +196,10 @@ export interface GaiaNoteRow {
   blockCount: number;
   refCount: number;
   todoOpen: number;
+  /** Module 1 : couverture (JSON sérialisé, null = aucune). */
+  cover: string | null;
+  /** Module 1 : objectif d'écriture de la note (mots), null = aucun. */
+  wordGoal: number | null;
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -403,33 +477,38 @@ export function MasteryBadge({ mastery }: { mastery: MasteryLevel }) {
   );
 }
 
-/** Inline **bold**, *italic* and `code` — parsed into React nodes, never HTML. */
+/**
+ * Formatage riche inline — **gras**, *italique*, __souligné__, ~~barré~~,
+ * ==surligné==, `code`, [#RRGGBB]couleur[/] — découpé en segments React,
+ * jamais de HTML. (Module 1 : étendu depuis gras/italique/code.)
+ */
 export function InlineMarkdown({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`\n]+`)/g);
+  const segments = parseInlineSegments(text);
   return (
     <>
-      {parts.map((part, i) => {
-        if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
-          return (
-            <strong key={i} className="font-semibold text-foreground">
-              {part.slice(2, -2)}
-            </strong>
-          );
-        }
-        if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
-          return <em key={i}>{part.slice(1, -1)}</em>;
-        }
-        if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-          return (
-            <code
-              key={i}
-              className="rounded-sm border bg-muted px-1 py-0.5 font-mono text-[0.85em]"
-            >
-              {part.slice(1, -1)}
+      {segments.map((seg, i) => {
+        let node: React.ReactNode = seg.text;
+        if (seg.code) {
+          node = (
+            <code className="rounded-sm border bg-muted px-1 py-0.5 font-mono text-[0.85em]">
+              {seg.text}
             </code>
           );
+        } else {
+          if (seg.bold) node = <strong className="font-semibold text-foreground">{node}</strong>;
+          if (seg.italic) node = <em>{node}</em>;
+          if (seg.underline) node = <u className="underline-offset-2">{node}</u>;
+          if (seg.strike) node = <s className="opacity-80">{node}</s>;
+          if (seg.highlight) {
+            node = (
+              <mark className="rounded-sm bg-amber-300/60 px-0.5 text-inherit dark:bg-amber-400/30">
+                {node}
+              </mark>
+            );
+          }
+          if (seg.color) node = <span style={{ color: seg.color }}>{node}</span>;
         }
-        return <React.Fragment key={i}>{part}</React.Fragment>;
+        return <React.Fragment key={i}>{node}</React.Fragment>;
       })}
     </>
   );
@@ -721,6 +800,10 @@ export interface GaiaNoteUpdateInput {
   tagIds?: string[];
   favorite?: boolean;
   blocks?: GaiaBlock[];
+  /** Module 1 : couverture (JSON sérialisé, null = retirer). */
+  cover?: string | null;
+  /** Module 1 : objectif d'écriture (mots), null = retirer. */
+  wordGoal?: number | null;
 }
 
 export function useCreateGaiaNote() {
@@ -876,5 +959,43 @@ export function useRestoreGaiaVersion() {
         { method: "POST" },
       ),
     onSuccess: () => invalidate(),
+  });
+}
+
+// ── Module 1 — Objectifs d'écriture (E12) ───────────────────────────────────
+
+export interface GaiaSettings {
+  dailyWordGoal: number;
+}
+
+export interface GaiaTodayWords {
+  wordsToday: number;
+  notesTouchedToday: number;
+  date: string;
+}
+
+export function useGaiaSettings() {
+  return useQuery({
+    queryKey: ["gaia", "settings"],
+    queryFn: () => apiFetch<GaiaSettings>(`${GAIA_BASE}/settings`),
+  });
+}
+
+export function useUpdateGaiaSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { dailyWordGoal: number }) =>
+      apiFetch<GaiaSettings>(`${GAIA_BASE}/settings`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (data) => qc.setQueryData(["gaia", "settings"], data),
+  });
+}
+
+export function useGaiaTodayWords() {
+  return useQuery({
+    queryKey: ["gaia", "writing", "today"],
+    queryFn: () => apiFetch<GaiaTodayWords>(`${GAIA_BASE}/writing/today`),
   });
 }

@@ -25,8 +25,19 @@ import {
   type GaiaNote,
   type GaiaT,
 } from "./gaia-shared";
+import { extractHeadings } from "@/lib/gaia/tree";
 
-function PrintBlock({ block, t }: { block: GaiaBlock; t: GaiaT }) {
+type PrintHeadings = Array<{ id: string; level: 1 | 2 | 3; text: string }>;
+
+function PrintBlock({
+  block,
+  t,
+  headings,
+}: {
+  block: GaiaBlock;
+  t: GaiaT;
+  headings: PrintHeadings;
+}) {
   switch (block.type) {
     case "h1":
       return (
@@ -133,6 +144,84 @@ function PrintBlock({ block, t }: { block: GaiaBlock; t: GaiaT }) {
         </p>
       );
     }
+    case "toggle":
+      return (
+        <div className="rounded-md border p-2">
+          <p className="text-[13px] font-semibold">
+            <InlineMarkdown text={block.text} />
+          </p>
+          {block.children ? (
+            <div className="mt-1 space-y-2 pl-3">
+              {renderPrintBlocks(block.children, t, headings)}
+            </div>
+          ) : null}
+        </div>
+      );
+    case "columns":
+      return (
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${(block.columns ?? []).length || 1}, minmax(0, 1fr))` }}>
+          {(block.columns ?? []).map((col, ci) => (
+            <div key={ci} className="min-w-0 space-y-2">
+              {renderPrintBlocks(col, t, headings)}
+            </div>
+          ))}
+        </div>
+      );
+    case "equation":
+      return (
+        <p className="text-center font-mono text-[13px]">$$ {block.text} $$</p>
+      );
+    case "drawing":
+      if (!block.src) return null;
+      return (
+        <figure>
+          <img src={block.src} alt={block.caption ?? ""} className="max-h-72 w-full object-contain" />
+          {block.caption ? (
+            <figcaption className="text-center text-[12px] italic text-muted-foreground">
+              {block.caption}
+            </figcaption>
+          ) : null}
+        </figure>
+      );
+    case "mermaid":
+      return (
+        <pre className="overflow-x-auto rounded-md bg-muted/60 p-2 font-mono text-[11px]">
+          {block.text}
+        </pre>
+      );
+    case "embed":
+      return (
+        <p className="text-[13px]">
+          <a href={block.text} target="_blank" rel="noreferrer" className="text-brand-cyan-deep underline">
+            {block.text}
+          </a>
+        </p>
+      );
+    case "toc":
+      return (
+        <div className="rounded-md border p-3">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            {t("gaia.blockTypes.toc")}
+          </p>
+          {headings.length === 0 ? (
+            <p className="mt-1 text-[13px] text-muted-foreground">{t("gaia.blocks.tocEmpty")}</p>
+          ) : (
+            <ul className="mt-1 space-y-0.5">
+              {headings.map((h) => (
+                <li key={h.id} style={{ paddingLeft: `${(h.level - 1) * 14}px` }} className="text-[13px]">
+                  {h.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      );
+    case "synced":
+      return (
+        <p className="text-[13px] leading-relaxed">
+          <InlineMarkdown text={block.text} />
+        </p>
+      );
     default:
       return (
         <p className="text-[13px] leading-relaxed">
@@ -140,6 +229,44 @@ function PrintBlock({ block, t }: { block: GaiaBlock; t: GaiaT }) {
         </p>
       );
   }
+}
+
+/** Groupes les listes consécutives (puces / numérotées) en vraies listes. */
+function renderPrintBlocks(
+  blocks: GaiaBlock[],
+  t: GaiaT,
+  headings: PrintHeadings,
+): React.ReactNode[] {
+  const rendered: React.ReactNode[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    const block = blocks[i];
+    if (block.type === "bullet" || block.type === "numbered") {
+      const kind = block.type;
+      const items: GaiaBlock[] = [];
+      while (i < blocks.length && blocks[i].type === kind) {
+        items.push(blocks[i]);
+        i++;
+      }
+      const List = kind === "bullet" ? "ul" : "ol";
+      rendered.push(
+        <List
+          key={`list-${items[0].id}`}
+          className={kind === "bullet" ? "list-disc pl-5 text-[13px]" : "list-decimal pl-5 text-[13px]"}
+        >
+          {items.map((item) => (
+            <li key={item.id}>
+              <InlineMarkdown text={item.text} />
+            </li>
+          ))}
+        </List>,
+      );
+    } else {
+      rendered.push(<PrintBlock key={block.id} block={block} t={t} headings={headings} />);
+      i++;
+    }
+  }
+  return rendered;
 }
 
 export function NotePrintDialog({
@@ -164,37 +291,8 @@ export function NotePrintDialog({
   }, [open ]);
 
   const blocks = note?.blocks ?? [];
-
-  // Group consecutive bullet / numbered blocks into real lists.
-  const rendered: Array<{ key: string; node: React.ReactNode }> = [];
-  let i = 0;
-  while (i < blocks.length) {
-    const block = blocks[i];
-    if (block.type === "bullet" || block.type === "numbered") {
-      const kind = block.type;
-      const items: GaiaBlock[] = [];
-      while (i < blocks.length && blocks[i].type === kind) {
-        items.push(blocks[i]);
-        i++;
-      }
-      const List = kind === "bullet" ? "ul" : "ol";
-      rendered.push({
-        key: `list-${items[0].id}`,
-        node: (
-          <List className={kind === "bullet" ? "list-disc pl-5 text-[13px]" : "list-decimal pl-5 text-[13px]"}>
-            {items.map((item) => (
-              <li key={item.id}>
-                <InlineMarkdown text={item.text} />
-              </li>
-            ))}
-          </List>
-        ),
-      });
-    } else {
-      rendered.push({ key: block.id, node: <PrintBlock block={block} t={t} /> });
-      i++;
-    }
-  }
+  const headings = extractHeadings(blocks);
+  const rendered = renderPrintBlocks(blocks, t, headings);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -232,7 +330,7 @@ export function NotePrintDialog({
             {blocks.length === 0 ? (
               <p className="text-[13px] italic text-muted-foreground">{t("gaia.print.empty")}</p>
             ) : (
-              rendered.map((r) => <div key={r.key}>{r.node}</div>)
+              <div className="space-y-3">{rendered}</div>
             )}
           </div>
         </div>

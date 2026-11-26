@@ -93,23 +93,35 @@ export async function resolveNoteRefs(
 ): Promise<GaiaBlock[]> {
   const out: GaiaBlock[] = [];
   for (const block of blocks) {
-    if (block.type !== "ref" || !block.ref) {
-      out.push(block);
+    let next = block;
+    // Module 1 : les refs imbriquées (enfants, colonnes) se résolvent aussi.
+    if (block.children) {
+      next = { ...next, children: await resolveNoteRefs(userId, block.children) };
+    }
+    if (block.columns) {
+      const columns: GaiaBlock[][] = [];
+      for (const col of block.columns) {
+        columns.push(await resolveNoteRefs(userId, col));
+      }
+      next = { ...next, columns };
+    }
+    if (next.type !== "ref" || !next.ref) {
+      out.push(next);
       continue;
     }
-    const hit = await resolveRef(userId, block.ref.kind, block.ref.id);
+    const hit = await resolveRef(userId, next.ref.kind, next.ref.id);
     if (hit) {
       out.push({
-        ...block,
+        ...next,
         ref: { kind: hit.kind, id: hit.id, label: hit.label, meta: hit.meta, href: hit.href },
       });
     } else {
       out.push({
-        ...block,
+        ...next,
         ref: {
-          kind: block.ref.kind,
-          id: block.ref.id,
-          label: block.ref.label ?? "Unresolved reference",
+          kind: next.ref.kind,
+          id: next.ref.id,
+          label: next.ref.label ?? "Unresolved reference",
           meta: null,
           href: null,
         },

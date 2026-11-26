@@ -188,13 +188,18 @@
       "noOtherTags": "No other tags yet.",
       "addBlockLabel": "Add a block",
       "addBlockHint": "Click to add a block, press / for commands",
-      "slashMenuLabel": "Block commands"
+      "slashMenuLabel": "Block commands",
+      "formatToolbarLabel": "Formatting toolbar"
     },
     "slash": {
       "groups": {
         "Basic": "Basic",
         "Advanced": "Advanced",
-        "Trading": "Trading"
+        "Trading": "Trading",
+        "Lists": "Lists",
+        "Media": "Media",
+        "Layout": "Layout",
+        "Custom": "My commands"
       },
       "desc": {
         "text": "Plain paragraph",
@@ -216,13 +221,34 @@
         "lesson": "Reference an Academy lesson",
         "event": "Reference a calendar event",
         "symbol": "Reference a market/symbol",
-        "note": "Link another Gaïa note"
+        "note": "Link another Gaïa note",
+        "toggle": "Collapsible section",
+        "columns": "Two or three side-by-side columns",
+        "equation": "Math equation (LaTeX)",
+        "drawing": "Freehand sketch on a canvas",
+        "mermaid": "Flowchart or diagram from text",
+        "embed": "YouTube, Vimeo or external link",
+        "toc": "Navigable table of contents",
+        "synced": "Block mirrored across notes"
       },
       "seed": {
         "condition": "Condition",
         "observation": "Observation",
         "result": "Result"
-      }
+      },
+      "manageCustom": "Custom commands…",
+      "customDesc": "Your custom command",
+      "customTitle": "Custom slash commands",
+      "customBody": "Create shortcuts that insert a block of your choice, with optional starter text. They live in this browser only.",
+      "customCmdLabel": "Command (without /)",
+      "customLabelLabel": "Label",
+      "customLabelPlaceholder": "e.g. Meeting notes",
+      "customTypeLabel": "Block type",
+      "customPresetLabel": "Starter text (optional)",
+      "customPresetPlaceholder": "e.g. Attendees: ",
+      "customAdd": "Add command",
+      "customEmpty": "No custom commands yet.",
+      "customStoredLocally": "Stored in this browser only."
     },
     "blockTypes": {
       "paragraph": "Text",
@@ -237,7 +263,15 @@
       "code": "Code",
       "divider": "Divider",
       "image": "Image",
-      "table": "Table"
+      "table": "Table",
+      "toggle": "Toggle",
+      "columns": "Columns",
+      "equation": "Equation",
+      "drawing": "Drawing",
+      "mermaid": "Diagram",
+      "embed": "Embed",
+      "toc": "Table of contents",
+      "synced": "Synced block"
     },
     "placeholders": {
       "paragraph": "Write something, press '/' for commands…",
@@ -245,7 +279,9 @@
       "todo": "To-do…",
       "quote": "Quote…",
       "callout": "Callout text…",
-      "code": "Code…"
+      "code": "Code…",
+      "toggle": "Toggle title…",
+      "synced": "Synced text…"
     },
     "blocks": {
       "blockAria": "block",
@@ -282,7 +318,59 @@
       "missingRef": "Missing reference",
       "remove": "Remove",
       "open": "Open",
-      "removeRef": "Remove reference"
+      "removeRef": "Remove reference",
+      "editEquation": "Edit equation",
+      "equationPlaceholder": "e.g. E = mc^2",
+      "equationLabel": "LaTeX equation",
+      "drawingEmpty": "No drawing yet",
+      "draw": "Draw",
+      "drawingAlt": "Drawing",
+      "editDrawing": "Edit",
+      "removeDrawing": "Remove drawing",
+      "drawingLabel": "Drawing canvas",
+      "drawColor": "Color",
+      "eraser": "Eraser",
+      "undo": "Undo",
+      "clear": "Clear",
+      "saveDrawing": "Save drawing",
+      "drawingTooBig": "Drawing is too large (2 MB max). Simplify it and try again.",
+      "editDiagram": "Edit diagram",
+      "mermaidPlaceholder": "flowchart TD\n  A[Start] --> B[End]",
+      "mermaidLabel": "Mermaid diagram",
+      "embedPlaceholder": "Paste a link (YouTube, Vimeo, …)",
+      "embedLabel": "Embed URL",
+      "embedAdd": "Embed",
+      "embedChange": "Change link",
+      "removeEmbed": "Remove embed",
+      "tocEmpty": "Add headings to see the table of contents.",
+      "commentsTitle": "Comments",
+      "commentsOpen": "open",
+      "resolveComment": "Mark as resolved",
+      "deleteComment": "Delete comment",
+      "commentAuthorFallback": "Someone",
+      "commentResolved": "resolved",
+      "commentPlaceholder": "Write a comment…",
+      "commentLabel": "Add a comment",
+      "commentAdd": "Comment",
+      "tableFilterPlaceholder": "Filter rows…",
+      "tableFilterLabel": "Filter table rows",
+      "tableSortedBy": "Sorted by column",
+      "tableFormulaHint": "Formulas: =A1+B2, =SUM(A1:A3)…",
+      "columnOptions": "Column options",
+      "sortAsc": "Sort ascending",
+      "sortDesc": "Sort descending",
+      "dropHere": "Drop here",
+      "expandToggle": "Expand",
+      "collapseToggle": "Collapse",
+      "addColumnBlock": "Add column",
+      "selectBlock": "Select block",
+      "indent": "Indent",
+      "outdent": "Outdent",
+      "makeSynced": "Make synced block",
+      "copySyncedToNote": "Copy as synced block to…",
+      "moveToNote": "Move to note…",
+      "addComment": "Add comment",
+      "syncedBadge": "Synced"
     },
     "refKinds": {
       "trade": "Trade",
@@ -404,10 +492,65 @@
       "journalMastered": "Newly mastered",
       "journalWeek": "This week: {created} notes created · {reviewed} reviews done.",
       "journalNote": "Reviews and newly mastered notes are approximate: they are derived from each note's last review, since review history is not stored per day."
+    },
+    "format": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strike": "Strikethrough",
+      "highlight": "Highlight",
+      "code": "Inline code",
+      "color": "Text color",
+      "clear": "Clear formatting"
+    },
+    "outline": {
+      "title": "Outline",
+      "empty": "Add headings to see the outline."
+    },
+    "stats": {
+      "title": "Document statistics",
+      "words": "Words",
+      "chars": "Characters",
+      "paragraphs": "Paragraphs",
+      "headings": "Headings",
+      "todos": "To-dos",
+      "readingTime": "Reading time",
+      "minutesShort": "min"
+    },
+    "goals": {
+      "noteGoal": "Goal for this note",
+      "noteGoalPlaceholder": "e.g. 500",
+      "dailyGoal": "Daily goal",
+      "dailyGoalPlaceholder": "e.g. 300",
+      "today": "today",
+      "todayHint": "Words in notes created or edited today."
+    },
+    "cover": {
+      "add": "Add cover",
+      "gradient": "Gradient",
+      "urlPlaceholder": "Image URL…",
+      "urlLabel": "Cover image URL",
+      "change": "Change",
+      "remove": "Remove"
+    },
+    "multiselect": {
+      "selected": "selected",
+      "copy": "Copy as Markdown",
+      "duplicate": "Duplicate",
+      "delete": "Delete selected",
+      "copiedToast": "Copied as Markdown"
+    },
+    "moveToNote": {
+      "title": "Move to note",
+      "copyTitle": "Copy as synced block to note",
+      "body": "Pick the destination note. The block is appended at the end.",
+      "movedToast": "Block moved",
+      "copiedToast": "Synced block copied"
     }
   },
   "common": {
     "cancel": "Cancel",
-    "retry": "Retry"
+    "retry": "Retry",
+    "close": "Close"
   }
 }

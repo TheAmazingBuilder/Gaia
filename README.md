@@ -326,3 +326,90 @@ prisma/
   schema.prisma           User + AuthSession + 5 Gaïa models
   rls.sql                 20 RLS policies on gaia_* (apply in Supabase)
 ```
+
+## Module 1 — Advanced Editor & Writing Experience (26 Nov 2026, branch `Features-gaia`)
+
+The editor is the heart of Gaïa. All 20 features of Module 1 are implemented —
+nothing skipped. The core principles hold: BLOCK JSON, never HTML; blocks are
+stored as JSON in the note row; inline formatting lives in plain text.
+
+- **E01 Rich text** — bold, italic, underline, strikethrough, highlight,
+  text colors (Aurora palette). Formatting toolbar above the blocks +
+  Ctrl+B / Ctrl+I / Ctrl+U. Blocks show a formatted preview when not focused
+  (click to edit); the syntax is plain text: `**bold**`, `*italic*`,
+  `__underline__`, `~~strike~~`, `==highlight==`, `` `code` ``,
+  `[#RRGGBB]color[/]`, nestable. Word counts ignore the markers.
+- **E02 Inline code** — `` `code` `` inside a sentence, rendered inline.
+- **E03 Slash commands** — grouped (Basic / Lists / Media / Layout /
+  Advanced / My commands / Trading), searched across command, label,
+  description and keywords. Custom commands (localStorage, per browser):
+  `/your-command` inserts a block of your choice with optional starter text,
+  managed from the slash menu footer.
+- **E04 Advanced drag & drop** — drag blocks between nesting levels,
+  into toggles and columns (drop zones appear while dragging), and "Move to
+  note…" from the block menu (or the multi-select bar).
+- **E05 Nested blocks** — any block can have children (max depth 3).
+  Tab / Shift+Tab or the block menu indents / outdents. Enter on an empty
+  first child exits to the parent level; Backspace at the start merges into
+  the parent.
+- **E06 Toggle blocks** — collapsible sections with children (chevron,
+  collapsed state persisted).
+- **E07 Columns** — 2–3 side-by-side columns of blocks, each with its own
+  add-block button; removing a column moves its blocks to a neighbour
+  (removing the last one unwraps the block).
+- **E08 Synced blocks** — a block mirrored across notes. Editing any copy
+  updates the others in the same note instantly; the server fans the text
+  out to copies in other notes on save. Duplicating a note re-links its
+  synced blocks inside the copy only.
+- **E09 Comments on blocks** — per-block threads (author = your display
+  name, resolve toggle, delete). Gutter button shows the open count.
+- **E10 Document outline** — sticky panel (ListTree button in the header)
+  built from the note's headings; click scrolls to the block.
+- **E11 Word count advanced** — click the word count in the header:
+  words, characters, paragraphs, headings, to-dos, reading time.
+- **E12 Writing goals** — per-note word goal + daily word goal (same
+  popover). Progress bars; the daily count is the words in notes created or
+  edited today (approximation, documented in the code). New API routes
+  `GET/PATCH /api/gaia/settings` and `GET /api/gaia/writing/today`
+  (+ `/api/v1/gaia/` mirrors).
+- **E13 Table of contents** — a `/toc` block that lists the note's
+  headings and navigates to them.
+- **E14 Equation editor** — LaTeX blocks rendered with KaTeX
+  (new dependency `katex`), source editable inline.
+- **E15 Advanced tables** — the existing table block, extended: sort by
+  column (persisted), row filter, column types (text / number / date /
+  checkbox), formulas (`=A1+B2`, `=SUM(A1:A3)`, `=AVG(...)`, `=MIN/MAX/COUNT`).
+  Sort/filter never lose rows (display order only).
+- **E16 Drawing canvas** — freehand drawing on a 960×480 canvas (colors,
+  sizes, eraser, undo, clear), saved as a PNG data URL (2 MB cap, same as
+  images). An existing drawing can be re-opened and drawn over.
+- **E17 Mermaid diagrams** — `mermaid` code blocks rendered live
+  (new dependency `mermaid`, `securityLevel: "strict"`).
+- **E18 Embeds** — paste a URL: YouTube / Vimeo render as players, other
+  links as a rich link card. Only `https:` URLs are accepted server-side.
+- **E19 Document cover** — gradient (Aurora presets) or image (URL or
+  upload, 2 MB cap) at the top of the editor; grid note cards show a cover
+  strip. Stored as JSON on the note (`cover` column).
+- **E20 Multi-select blocks** — checkbox in the gutter (hover or when a
+  selection exists); a floating bar offers Copy as Markdown, Duplicate,
+  Turn into, Move to note, Delete. Escape clears the selection.
+
+### Module 1 — data model
+
+- `src/lib/gaia/content.ts` — 8 new block types (`toggle`, `columns`,
+  `equation`, `drawing`, `mermaid`, `embed`, `toc`, `synced`), recursive
+  `children` / `columns` (Zod `z.lazy`, depth cap 3), per-block `comments`
+  and `tableMeta`, inline parser (`src/lib/gaia/inline.ts`, client-safe).
+- `src/lib/gaia/tree.ts` — list addressing (`root` / `children:<id>` /
+  `columns:<id>:<n>`) and immutable tree ops used by the editor.
+- `prisma/schema.prisma` — `Note.cover` (String, JSON), `Note.wordGoal`
+  (Int, nullable), `User.dailyWordGoal` (Int, default 0).
+- New dependencies: `katex`, `mermaid` (both loaded lazily on the client).
+
+### Module 1 — PC steps (after pull)
+
+```powershell
+npm install
+npx prisma db push
+# restart dev, hard refresh
+```

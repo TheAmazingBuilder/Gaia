@@ -7,9 +7,27 @@
  * Contrairement à Euforia, les fonctions pures définies ici sont APPELÉES
  * par le code serveur (isSafeImageSrc à l'écriture, parseStoredBlocks à la
  * relecture, normalizeBlocks avant stockage).
+ *
+ * Module 1 — Advanced Editor (26 Nov 2026) :
+ * - 8 nouveaux types : toggle, columns, equation, drawing, mermaid, embed,
+ *   toc, synced.
+ * - Blocs imbriqués : `children` (profondeur max 3) et `columns`
+ *   (2–3 colonnes de blocs) ; les helpers de parcours sont récursifs.
+ * - Formatage riche inline dans `text` : **gras**, *italique*,
+ *   __souligné__, ~~barré~~, ==surligné==, `code`, [#RRGGBB]couleur[/].
+ *   Le texte reste du texte brut (jamais de HTML) ; `parseInlineSegments`
+ *   le découpe en segments pour le rendu, `stripInlineMarkers` l'épure
+ *   pour les comptes de mots.
+ * - Commentaires par bloc (`comments`) et métadonnées de tableau
+ *   (`tableMeta` : tri, types de colonnes).
  */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+
+import { parseInlineSegments, stripInlineMarkers } from "./inline";
+export { parseInlineSegments, stripInlineMarkers };
+export type { InlineSegment } from "./inline";
+
 
 export const GAIA_BLOCK_TYPES = [
   "paragraph",
@@ -26,6 +44,15 @@ export const GAIA_BLOCK_TYPES = [
   "image",
   "divider",
   "ref",
+  // Module 1 — Advanced Editor.
+  "toggle",
+  "columns",
+  "equation",
+  "drawing",
+  "mermaid",
+  "embed",
+  "toc",
+  "synced",
 ] as const;
 
 export type GaiaBlockType = (typeof GAIA_BLOCK_TYPES)[number];
@@ -55,6 +82,33 @@ export const GAIA_MAX_BLOCK_TEXT = 20_000;
 export const GAIA_MAX_TABLE_ROWS = 200;
 export const GAIA_MAX_TABLE_COLS = 8;
 export const GAIA_MAX_IMAGE_SRC = 2_000_000;
+/** Module 1 : profondeur max des enfants, enfants max par bloc, colonnes max. */
+export const GAIA_MAX_NESTING_DEPTH = 3;
+export const GAIA_MAX_CHILDREN = 50;
+export const GAIA_MAX_COLUMNS = 3;
+export const GAIA_MAX_COMMENTS = 50;
+
+export const GAIA_TABLE_COL_TYPES = ["text", "number", "date", "checkbox"] as const;
+export type GaiaTableColType = (typeof GAIA_TABLE_COL_TYPES)[number];
+export const gaiaTableColTypeSchema = z.enum(GAIA_TABLE_COL_TYPES);
+
+export const gaiaTableMetaInputSchema = z.object({
+  sortBy: z.number().int().min(0).max(GAIA_MAX_TABLE_COLS - 1).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional(),
+  colTypes: z.array(gaiaTableColTypeSchema).max(GAIA_MAX_TABLE_COLS).optional(),
+});
+
+export type GaiaTableMeta = z.infer<typeof gaiaTableMetaInputSchema>;
+
+export const gaiaBlockCommentInputSchema = z.object({
+  id: z.string().min(1).max(64),
+  author: z.string().max(120).default(""),
+  text: z.string().min(1).max(2_000),
+  createdAt: z.string().max(40).optional(),
+  resolved: z.boolean().optional(),
+});
+
+export type GaiaBlockComment = z.infer<typeof gaiaBlockCommentInputSchema>;
 
 export const gaiaBlockRefInputSchema = z.object({
   kind: gaiaRefKindSchema,
@@ -64,27 +118,60 @@ export const gaiaBlockRefInputSchema = z.object({
   href: z.string().max(300).nullable().optional(),
 });
 
-export const gaiaBlockInputSchema = z.object({
-  id: z.string().min(1).max(64),
-  type: gaiaBlockTypeSchema,
-  text: z.string().max(GAIA_MAX_BLOCK_TEXT).default(""),
-  checked: z.boolean().optional(),
-  tone: gaiaCalloutToneSchema.optional(),
-  src: z.string().max(GAIA_MAX_IMAGE_SRC).optional(),
-  alt: z.string().max(300).optional(),
-  caption: z.string().max(300).optional(),
-  rows: z
-    .array(z.array(z.string().max(2_000)).max(GAIA_MAX_TABLE_COLS))
-    .max(GAIA_MAX_TABLE_ROWS)
-    .optional(),
-  ref: gaiaBlockRefInputSchema.optional(),
-});
+/**
+ * Schéma récursif (z.lazy) : un bloc porte des `children` et/ou des
+ * `columns` qui sont eux-mêmes des blocs. Le type TS est déclaré à la main
+ * parce que z.infer ne peut pas s'auto-référencer.
+ */
+export type GaiaBlockInput = {
+  id: string;
+  type: GaiaBlockType;
+  text: string;
+  checked?: boolean;
+  tone?: GaiaCalloutTone;
+  src?: string;
+  alt?: string;
+  caption?: string;
+  rows?: string[][];
+  ref?: z.infer<typeof gaiaBlockRefInputSchema>;
+  children?: GaiaBlockInput[];
+  columns?: GaiaBlockInput[][];
+  collapsed?: boolean;
+  syncId?: string;
+  comments?: GaiaBlockComment[];
+  tableMeta?: GaiaTableMeta;
+};
+
+export const gaiaBlockInputSchema: z.ZodType<GaiaBlockInput> = z.lazy(() =>
+  z.object({
+    id: z.string().min(1).max(64),
+    type: gaiaBlockTypeSchema,
+    text: z.string().max(GAIA_MAX_BLOCK_TEXT).default(""),
+    checked: z.boolean().optional(),
+    tone: gaiaCalloutToneSchema.optional(),
+    src: z.string().max(GAIA_MAX_IMAGE_SRC).optional(),
+    alt: z.string().max(300).optional(),
+    caption: z.string().max(300).optional(),
+    rows: z
+      .array(z.array(z.string().max(2_000)).max(GAIA_MAX_TABLE_COLS))
+      .max(GAIA_MAX_TABLE_ROWS)
+      .optional(),
+    ref: gaiaBlockRefInputSchema.optional(),
+    children: z.array(gaiaBlockInputSchema).max(GAIA_MAX_CHILDREN).optional(),
+    columns: z
+      .array(z.array(gaiaBlockInputSchema).max(GAIA_MAX_CHILDREN))
+      .max(GAIA_MAX_COLUMNS)
+      .optional(),
+    collapsed: z.boolean().optional(),
+    syncId: z.string().min(1).max(64).optional(),
+    comments: z.array(gaiaBlockCommentInputSchema).max(GAIA_MAX_COMMENTS).optional(),
+    tableMeta: gaiaTableMetaInputSchema.optional(),
+  }),
+);
 
 export const gaiaBlocksInputSchema = z
   .array(gaiaBlockInputSchema)
   .max(GAIA_MAX_BLOCKS);
-
-export type GaiaBlockInput = z.infer<typeof gaiaBlockInputSchema>;
 
 export type GaiaBlockRef = {
   kind: GaiaRefKind;
@@ -105,6 +192,12 @@ export type GaiaBlock = {
   caption?: string;
   rows?: string[][];
   ref?: GaiaBlockRef;
+  children?: GaiaBlock[];
+  columns?: GaiaBlock[][];
+  collapsed?: boolean;
+  syncId?: string;
+  comments?: GaiaBlockComment[];
+  tableMeta?: GaiaTableMeta;
 };
 
 /** Nouvel id de bloc : `nb-` + 24 caractères hex. */
@@ -112,13 +205,35 @@ export function newBlockId(): string {
   return `nb-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 }
 
+/** Nouvel id de groupe synchronisé : `sy-` + 16 caractères hex. */
+export function newSyncId(): string {
+  return `sy-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+}
+
+/** Nouvel id de commentaire : `cm-` + 16 caractères hex. */
+export function newCommentId(): string {
+  return `cm-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+}
+
+// ── Formatage riche inline ─────────────────────────────────────────────────
+// La syntaxe et le parser vivent dans ./inline.ts (client-safe, sans
+// dépendance Node) ; content.ts les ré-exporte pour le serveur.
+// ── Parcours récursif ──────────────────────────────────────────────────────
+// flattenBlocks + extractHeadings vivent dans ./tree.ts (client-safe) ;
+// content.ts les importe (usage local) et les ré-exporte pour le serveur.
+import { extractHeadings, flattenBlocks } from "./tree";
+export { extractHeadings, flattenBlocks };
+
+// ── Normalisation / relecture ──────────────────────────────────────────────
+
 /**
  * Normalisation à l'écriture : les champs d'affichage du `ref` sont supprimés
  * avant stockage, seuls `kind` + `id` persistent. `label` / `meta` / `href`
- * sont re-résolus côté serveur à chaque lecture.
+ * sont re-résolus côté serveur à chaque lecture. Les enfants et colonnes
+ * sont normalisés récursivement (profondeur plafonnée).
  */
 export function normalizeBlocks(input: GaiaBlockInput[]): GaiaBlock[] {
-  return input.map((block) => {
+  const normalizeOne = (block: GaiaBlockInput, depth: number): GaiaBlock => {
     const out: GaiaBlock = {
       id: block.id,
       type: block.type,
@@ -133,8 +248,31 @@ export function normalizeBlocks(input: GaiaBlockInput[]): GaiaBlock[] {
     if (block.ref !== undefined && block.ref !== null) {
       out.ref = { kind: block.ref.kind, id: block.ref.id };
     }
+    if (block.collapsed !== undefined) out.collapsed = block.collapsed;
+    if (block.syncId !== undefined) out.syncId = block.syncId;
+    if (block.comments !== undefined) {
+      out.comments = block.comments.map((c) => ({
+        id: c.id,
+        author: c.author ?? "",
+        text: c.text,
+        createdAt: c.createdAt ?? new Date().toISOString(),
+        resolved: c.resolved ?? false,
+      }));
+    }
+    if (block.tableMeta !== undefined) out.tableMeta = block.tableMeta;
+    if (depth < GAIA_MAX_NESTING_DEPTH) {
+      if (block.children !== undefined) {
+        out.children = block.children.map((child) => normalizeOne(child, depth + 1));
+      }
+      if (block.columns !== undefined) {
+        out.columns = block.columns.map((col) =>
+          col.map((child) => normalizeOne(child, depth + 1)),
+        );
+      }
+    }
     return out;
-  });
+  };
+  return input.map((block) => normalizeOne(block, 0));
 }
 
 /**
@@ -149,22 +287,27 @@ export function isSafeImageSrc(src: string | undefined): boolean {
   return SAFE_IMAGE_SRC.test(src);
 }
 
+/** Embeds : seules les URL https sont acceptées. */
+export function isSafeEmbedUrl(url: string | undefined): boolean {
+  if (url === undefined) return true;
+  return /^https:\/\//i.test(url);
+}
+
 /**
  * Relecture défensive des blocs stockés : les blocs inconnus ou corrompus
- * sont ignorés (dropped), jamais servis.
+ * sont ignorés (dropped), jamais servis. Récursive (enfants + colonnes).
  */
 export function parseStoredBlocks(value: unknown): GaiaBlock[] {
   if (!Array.isArray(value)) return [];
-  const out: GaiaBlock[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) continue;
+  const parseOne = (entry: unknown, depth: number): GaiaBlock | null => {
+    if (typeof entry !== "object" || entry === null) return null;
     const raw = entry as Record<string, unknown>;
-    if (typeof raw.id !== "string" || raw.id === "") continue;
+    if (typeof raw.id !== "string" || raw.id === "") return null;
     if (
       typeof raw.type !== "string" ||
       !(GAIA_BLOCK_TYPES as readonly string[]).includes(raw.type)
     ) {
-      continue;
+      return null;
     }
     const block: GaiaBlock = {
       id: raw.id,
@@ -213,7 +356,72 @@ export function parseStoredBlocks(value: unknown): GaiaBlock[] {
         block.ref = resolved;
       }
     }
-    out.push(block);
+    if (typeof raw.collapsed === "boolean") block.collapsed = raw.collapsed;
+    if (typeof raw.syncId === "string" && raw.syncId !== "") {
+      block.syncId = raw.syncId;
+    }
+    if (Array.isArray(raw.comments)) {
+      const comments: GaiaBlockComment[] = [];
+      for (const c of raw.comments) {
+        if (typeof c !== "object" || c === null) continue;
+        const cr = c as Record<string, unknown>;
+        if (typeof cr.id !== "string" || typeof cr.text !== "string") continue;
+        comments.push({
+          id: cr.id,
+          author: typeof cr.author === "string" ? cr.author : "",
+          text: cr.text,
+          createdAt: typeof cr.createdAt === "string" ? cr.createdAt : "",
+          resolved: cr.resolved === true,
+        });
+      }
+      if (comments.length > 0) block.comments = comments;
+    }
+    if (typeof raw.tableMeta === "object" && raw.tableMeta !== null) {
+      const tm = raw.tableMeta as Record<string, unknown>;
+      const meta: GaiaTableMeta = {};
+      if (typeof tm.sortBy === "number") meta.sortBy = tm.sortBy;
+      if (tm.sortDir === "asc" || tm.sortDir === "desc") meta.sortDir = tm.sortDir;
+      if (
+        Array.isArray(tm.colTypes) &&
+        tm.colTypes.every(
+          (ct) =>
+            typeof ct === "string" &&
+            (GAIA_TABLE_COL_TYPES as readonly string[]).includes(ct),
+        )
+      ) {
+        meta.colTypes = tm.colTypes as GaiaTableColType[];
+      }
+      if (Object.keys(meta).length > 0) block.tableMeta = meta;
+    }
+    if (depth < GAIA_MAX_NESTING_DEPTH) {
+      if (Array.isArray(raw.children)) {
+        const children: GaiaBlock[] = [];
+        for (const child of raw.children) {
+          const parsed = parseOne(child, depth + 1);
+          if (parsed) children.push(parsed);
+        }
+        if (children.length > 0) block.children = children;
+      }
+      if (Array.isArray(raw.columns)) {
+        const columns: GaiaBlock[][] = [];
+        for (const col of raw.columns) {
+          if (!Array.isArray(col)) continue;
+          const parsedCol: GaiaBlock[] = [];
+          for (const child of col) {
+            const parsed = parseOne(child, depth + 1);
+            if (parsed) parsedCol.push(parsed);
+          }
+          columns.push(parsedCol);
+        }
+        if (columns.length > 0) block.columns = columns;
+      }
+    }
+    return block;
+  };
+  const out: GaiaBlock[] = [];
+  for (const entry of value) {
+    const parsed = parseOne(entry, 0);
+    if (parsed) out.push(parsed);
   }
   return out;
 }
@@ -253,33 +461,54 @@ const TEXT_BEARING = new Set([
   "quote",
   "callout",
   "code",
+  "toggle",
+  "equation",
+  "mermaid",
+  "synced",
 ]);
 
 export function textOfBlocks(blocks: GaiaBlock[]): string {
   const parts: string[] = [];
-  for (const block of blocks) {
+  for (const block of flattenBlocks(blocks)) {
     if (TEXT_BEARING.has(block.type) && block.text.trim() !== "") {
-      parts.push(block.text.trim());
+      parts.push(stripInlineMarkers(block.text).trim());
     }
     if (block.type === "table" && block.rows) {
       for (const row of block.rows) parts.push(row.join(" | "));
     }
     if (block.type === "image" && block.caption) parts.push(block.caption);
+    if (block.type === "drawing" && block.caption) parts.push(block.caption);
+    if (block.type === "embed" && block.text.trim() !== "") {
+      parts.push(block.text.trim());
+    }
   }
   return parts.join("\n");
 }
 
 export function wordCountOf(text: string): number {
-  return text.split(/\s+/).filter((word) => word !== "").length;
+  return stripInlineMarkers(text)
+    .split(/\s+/)
+    .filter((word) => word !== "").length;
 }
 
 export function countWords(blocks: GaiaBlock[]): number {
   return wordCountOf(textOfBlocks(blocks));
 }
 
+/** Nombre de caractères (espaces exclus), pour le compteur avancé (E11). */
+export function countChars(blocks: GaiaBlock[]): number {
+  return textOfBlocks(blocks).replace(/\s+/g, "").length;
+}
+
+/** Temps de lecture estimé en minutes (200 mots/minute). */
+export function readingTimeMinutes(words: number): number {
+  return Math.max(1, Math.ceil(words / 200));
+}
+
 export function countOpenTodos(blocks: GaiaBlock[]): number {
-  return blocks.filter((block) => block.type === "todo" && !block.checked)
-    .length;
+  return flattenBlocks(blocks).filter(
+    (block) => block.type === "todo" && !block.checked,
+  ).length;
 }
 
 /** Extrait d'environ 180 caractères tiré des premiers blocs porteurs de texte. */

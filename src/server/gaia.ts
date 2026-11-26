@@ -15,10 +15,13 @@ import {
   countOpenTodos,
   countWords,
   excerptOf,
+  flattenBlocks,
   gaiaBlocksInputSchema,
   gaiaRefKindSchema,
+  isSafeEmbedUrl,
   isSafeImageSrc,
   newBlockId,
+  newSyncId,
   normalizeBlocks,
   parseJsonBlocks,
   parseJsonStringArray,
@@ -27,6 +30,7 @@ import {
   type GaiaBlock,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
+import { collectSyncedTexts, syncTextAcross } from "@/lib/gaia/tree";
 import { builtInTemplates, findBuiltInTemplate, type GaiaBuiltInTemplate } from "@/lib/gaia/templates";
 import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib/gaia/refs";
 import {
@@ -114,6 +118,8 @@ const noteCreateInputSchema = z.object({
   folderId: z.string().nullable().optional(),
   templateId: z.string().optional(),
   blocks: gaiaBlocksInputSchema.optional(),
+  cover: z.string().max(2_000_000).nullable().optional(),
+  wordGoal: z.number().int().min(0).max(1_000_000).nullable().optional(),
 });
 
 const noteUpdateInputSchema = z.object({
@@ -123,7 +129,13 @@ const noteUpdateInputSchema = z.object({
   tagIds: z.array(z.string()).max(24).optional(),
   favorite: z.boolean().optional(),
   blocks: gaiaBlocksInputSchema.optional(),
+  cover: z.string().max(2_000_000).nullable().optional(),
+  wordGoal: z.number().int().min(0).max(1_000_000).nullable().optional(),
   touchViewed: z.boolean().optional(),
+});
+
+const writingSettingsInputSchema = z.object({
+  dailyWordGoal: z.number().int().min(0).max(1_000_000),
 });
 
 const noteDuplicateInputSchema = z.object({
@@ -170,11 +182,20 @@ function parseOrThrow<T>(schema: SafeParser<T>, input: unknown): T {
   return parsed.data;
 }
 
-/** Rejette les blocs image dont le src utilise un protocole non autorisé. */
+/**
+ * Rejette les blocs image/dessin dont le src utilise un protocole non
+ * autorisé, et les embeds dont l'URL n'est pas https. Récursif (Module 1).
+ */
 function assertSafeImageSources(blocks: GaiaBlock[]): void {
-  for (const block of blocks) {
-    if (block.type === "image" && !isSafeImageSrc(block.src)) {
+  for (const block of flattenBlocks(blocks)) {
+    if (
+      (block.type === "image" || block.type === "drawing") &&
+      !isSafeImageSrc(block.src)
+    ) {
       throw validationError("Image source not allowed.");
+    }
+    if (block.type === "embed" && !isSafeEmbedUrl(block.text)) {
+      throw validationError("Embed URL must use https.");
     }
   }
 }
@@ -196,6 +217,9 @@ export type GaiaNoteRow = {
   blockCount: number;
   refCount: number;
   todoOpen: number;
+  // Module 1 — couverture (JSON sérialisé) + objectif d'écriture.
+  cover: string | null;
+  wordGoal: number | null;
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -219,6 +243,9 @@ export type GaiaNoteDTO = {
   favorite: boolean;
   templateId: string | null;
   blocks: GaiaBlock[];
+  // Module 1 — couverture (JSON sérialisé) + objectif d'écriture.
+  cover: string | null;
+  wordGoal: number | null;
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -295,14 +322,39 @@ function nameKeyOf(name: string): string {
   return name.trim().toLowerCase();
 }
 
+/**
+ * Clone profond avec nouveaux ids. Les groupes synchronisés sont
+ * re-liés entre eux dans la copie (même ancien syncId → même nouveau
+ * syncId) mais coupés de l'original : une note dupliquée est indépendante.
+ */
 function cloneBlocksWithNewIds(blocks: GaiaBlock[]): GaiaBlock[] {
-  return blocks.map((block) => ({ ...block, id: newBlockId() }));
+  const syncMap = new Map<string, string>();
+  const cloneOne = (block: GaiaBlock): GaiaBlock => {
+    const next: GaiaBlock = { ...block, id: newBlockId() };
+    if (block.type === "synced" && block.syncId) {
+      let fresh = syncMap.get(block.syncId);
+      if (!fresh) {
+        fresh = newSyncId();
+        syncMap.set(block.syncId, fresh);
+      }
+      next.syncId = fresh;
+    }
+    if (block.children) next.children = block.children.map(cloneOne);
+    if (block.columns) next.columns = block.columns.map((col) => col.map(cloneOne));
+    return next;
+  };
+  return blocks.map(cloneOne);
 }
 
 function stripRefs(blocks: GaiaBlock[]): GaiaBlock[] {
   return blocks.map((block) => {
     const { ref: _ref, ...rest } = block;
-    return rest;
+    const next: GaiaBlock = rest;
+    if (block.children) next.children = stripRefs(block.children);
+    if (block.columns) {
+      next.columns = block.columns.map((col) => stripRefs(col));
+    }
+    return next;
   });
 }
 
@@ -346,6 +398,8 @@ const NOTE_LIST_SELECT = {
   tagIds: true,
   favorite: true,
   templateId: true,
+  cover: true,
+  wordGoal: true,
   createdAt: true,
   updatedAt: true,
   lastViewedAt: true,
@@ -380,9 +434,11 @@ function toRow(note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]): Gaia
     templateId: note.templateId,
     excerpt: excerptOf(blocks),
     wordCount: countWords(blocks),
-    blockCount: blocks.length,
-    refCount: blocks.filter((b) => b.type === "ref").length,
+    blockCount: flattenBlocks(blocks).length,
+    refCount: flattenBlocks(blocks).filter((b) => b.type === "ref").length,
     todoOpen: countOpenTodos(blocks),
+    cover: note.cover ?? null,
+    wordGoal: note.wordGoal ?? null,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
@@ -409,6 +465,8 @@ function toDTO(note: Note): GaiaNoteDTO {
     favorite: note.favorite,
     templateId: note.templateId,
     blocks: parseJsonBlocks(note.blocks),
+    cover: note.cover ?? null,
+    wordGoal: note.wordGoal ?? null,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
@@ -586,7 +644,7 @@ export async function listNotes(
       (note) =>
         note.deletedAt === null &&
         memoryMatches(note, query, now) &&
-        parseJsonBlocks(note.blocks).some(
+        flattenBlocks(parseJsonBlocks(note.blocks)).some(
           (b) => b.type === "ref" && b.ref?.kind === kind && b.ref.id === query.refId,
         ),
     );
@@ -768,6 +826,8 @@ export async function createNote(
       favorite: false,
       templateId: template?.id ?? null,
       blocks: JSON.stringify(blocks),
+      cover: parsed.cover ?? null,
+      wordGoal: parsed.wordGoal ?? null,
       createdAt: now,
       updatedAt: now,
       lastViewedAt: now,
@@ -801,7 +861,9 @@ export async function updateNote(
     parsed.folderId !== undefined ||
     parsed.tagIds !== undefined ||
     parsed.favorite !== undefined ||
-    parsed.blocks !== undefined;
+    parsed.blocks !== undefined ||
+    parsed.cover !== undefined ||
+    parsed.wordGoal !== undefined;
 
   if (!hasMeaningfulChange) {
     if (parsed.touchViewed === true) {
@@ -825,12 +887,16 @@ export async function updateNote(
     tagIds?: string;
     favorite?: boolean;
     blocks?: string;
+    cover?: string | null;
+    wordGoal?: number | null;
     updatedAt: Date;
   } = { updatedAt: new Date() };
   if (parsed.title !== undefined) data.title = parsed.title.trim();
   if (parsed.icon !== undefined) data.icon = parsed.icon;
   if (parsed.folderId !== undefined) data.folderId = parsed.folderId;
   if (parsed.favorite !== undefined) data.favorite = parsed.favorite;
+  if (parsed.cover !== undefined) data.cover = parsed.cover;
+  if (parsed.wordGoal !== undefined) data.wordGoal = parsed.wordGoal;
   if (parsed.tagIds !== undefined) {
     const known = await loadTags(userId);
     const knownIds = new Set(known.map((t) => t.id));
@@ -843,8 +909,129 @@ export async function updateNote(
   }
 
   const updated = await db.note.update({ where: { id: note.id }, data });
+  // Module 1 (E08) : propager le texte des blocs synchronisés modifiés
+  // vers leurs copies dans les autres notes de l'utilisateur.
+  if (parsed.blocks !== undefined) {
+    const synced = collectSyncedTexts(normalizeBlocks(parsed.blocks));
+    if (synced.size > 0) {
+      await propagateSyncedBlocks(userId, note.id, synced);
+    }
+  }
   const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
   return noteResponse(userId, updated, folders, tags);
+}
+
+/**
+ * Module 1 (E08) — propagation inter-notes des blocs synchronisés.
+ * Pour chaque autre note contenant une copie d'un syncId modifié, le texte
+ * de la copie est aligné. updatedAt n'est pas touché (pas de bruit dans
+ * les versions ni dans les tris) ; la copie reste liée pour les prochaines
+ * modifications.
+ */
+async function propagateSyncedBlocks(
+  userId: string,
+  sourceNoteId: string,
+  synced: Map<string, string>,
+): Promise<void> {
+  const others = await db.note.findMany({
+    where: { userId, deletedAt: null, id: { not: sourceNoteId } },
+    select: { id: true, blocks: true },
+  });
+  for (const other of others) {
+    const blocks = parseJsonBlocks(other.blocks);
+    let changed = false;
+    let next = blocks;
+    for (const [syncId, text] of synced) {
+      const updatedBlocks = syncTextAcross(next, syncId, text);
+      if (updatedBlocks !== next) {
+        changed = true;
+        next = updatedBlocks;
+      }
+    }
+    if (changed) {
+      await db.note.update({
+        where: { id: other.id },
+        data: { blocks: JSON.stringify(next) },
+      });
+    }
+  }
+}
+
+/* ── Module 1 — Objectifs d'écriture (E12) ─────────────────────────────── */
+
+export type GaiaWritingSettings = { dailyWordGoal: number };
+
+export async function getWritingSettings(userId: string): Promise<GaiaWritingSettings> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { dailyWordGoal: true },
+  });
+  return { dailyWordGoal: user?.dailyWordGoal ?? 0 };
+}
+
+export async function updateWritingSettings(
+  userId: string,
+  input: unknown,
+): Promise<GaiaWritingSettings> {
+  const parsed = parseOrThrow(writingSettingsInputSchema, input);
+  const user = await db.user.update({
+    where: { id: userId },
+    data: { dailyWordGoal: parsed.dailyWordGoal },
+    select: { dailyWordGoal: true },
+  });
+  return { dailyWordGoal: user.dailyWordGoal };
+}
+
+export type GaiaTodayWords = {
+  wordsToday: number;
+  notesTouchedToday: number;
+  date: string;
+};
+
+/**
+ * Mots du jour : somme des mots des notes créées ou modifiées aujourd'hui
+ * (heure locale de l'utilisateur). Approximation documentée : c'est le
+ * volume des notes touchées aujourd'hui, pas un diff mot à mot.
+ */
+export async function getTodayWords(userId: string): Promise<GaiaTodayWords> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  });
+  const tz = user?.timezone ?? "UTC";
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const y = parts.find((x) => x.type === "year")?.value ?? "1970";
+  const m = parts.find((x) => x.type === "month")?.value ?? "01";
+  const d = parts.find((x) => x.type === "day")?.value ?? "01";
+  const dayStart = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
+  // Bornes en UTC à partir du jour local : on approxime avec le décalage
+  // du fuseau à cet instant (suffisant pour un compteur journalier).
+  const tzOffsetMs = (() => {
+    const utc = new Date(`${y}-${m}-${d}T12:00:00.000Z`);
+    const local = new Date(
+      utc.toLocaleString("en-US", { timeZone: tz }),
+    );
+    return utc.getTime() - local.getTime();
+  })();
+  const start = new Date(dayStart.getTime() + tzOffsetMs);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const notes = await db.note.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      OR: [{ createdAt: { gte: start, lt: end } }, { updatedAt: { gte: start, lt: end } }],
+    },
+    select: { blocks: true },
+  });
+  let wordsToday = 0;
+  for (const note of notes) wordsToday += countWords(parseJsonBlocks(note.blocks));
+  return { wordsToday, notesTouchedToday: notes.length, date: `${y}-${m}-${d}` };
 }
 
 export async function trashNote(userId: string, noteId: string): Promise<{ ok: true }> {
@@ -1084,7 +1271,7 @@ export async function getMemoryGraph(
   const edges: GaiaMemoryGraphEdge[] = [];
   const seenRef = new Set<string>();
   for (const note of notes) {
-    for (const block of parseJsonBlocks(note.blocks)) {
+    for (const block of flattenBlocks(parseJsonBlocks(note.blocks))) {
       if (block.type !== "ref" || block.ref?.kind !== "NOTE") continue;
       const target = block.ref.id;
       if (target === note.id || !ids.has(target)) continue;

@@ -37,6 +37,8 @@ model User {
   displayName  String   @default("") @map("display_name")
   /// IANA timezone, e.g. "America/Toronto" (Promethe: Profile.timezone).
   timezone     String   @default("UTC")
+  /// Module 1 — objectif d'écriture quotidien (mots), 0 = aucun.
+  dailyWordGoal Int     @default(0) @map("daily_word_goal")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -85,6 +87,10 @@ model Note {
   templateId   String?   @map("template_id")
   /// JSON GaiaBlock[] (contenu éditorial, jamais de HTML brut).
   blocks       String    @default("[]")
+  /// Module 1 — couverture : JSON { kind: "image" | "gradient", value: string }.
+  cover        String?
+  /// Module 1 — objectif d'écriture de cette note (mots), null = aucun.
+  wordGoal     Int?      @map("word_goal")
   lastViewedAt DateTime? @map("last_viewed_at")
   deletedAt    DateTime? @map("deleted_at")
   // ── Phase 1 — Memory (Heat Memory System + spaced repetition, 18 Nov 2026).

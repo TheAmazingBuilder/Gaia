@@ -14,6 +14,7 @@ import {
   Download,
   FileDown,
   History,
+  ListTree,
   Maximize2,
   Minimize2,
   Star,
@@ -21,6 +22,8 @@ import {
   X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -50,23 +53,62 @@ import {
   useDuplicateGaiaNote,
   useGaiaFolders,
   useGaiaNote,
+  useGaiaSettings,
   useGaiaTags,
+  useGaiaTodayWords,
   useRestoreGaiaVersion,
   useTrashGaiaNote,
   useUpdateGaiaNote,
+  useUpdateGaiaSettings,
   type GaiaBlock,
+  type GaiaCover,
   type GaiaRefHit,
   type GaiaRefKind,
   type GaiaT,
 } from "./gaia-shared";
 import {
-  GaiaBlockRow,
+  BlockList,
   GaiaSlashMenu,
-  numberedIndexFor,
   slashItemsFor,
+  TEXT_BLOCK_TYPES,
+  type BlockRowContext,
+  type DragState,
   type GaiaBlockOps,
+  type GaiaCustomSlashCommand,
   type GaiaSlashItem,
 } from "./gaia-blocks";
+import {
+  CoverBar,
+  CustomSlashDialog,
+  FormatToolbar,
+  loadCustomSlashCommands,
+  MoveToNoteDialog,
+  MultiSelectBar,
+  OutlinePanel,
+  saveCustomSlashCommands,
+  StatsPopover,
+  type EditorStats,
+  type FormatKind,
+} from "./gaia-editor-panels";
+import { stripInlineMarkers } from "@/lib/gaia/inline";
+import {
+  childrenListId,
+  countBlocksDeep,
+  extractHeadings,
+  findBlock,
+  findBlockLocation,
+  flattenBlocks,
+  getList,
+  insertIntoList,
+  moveBlockDeep,
+  removeBlockDeep,
+  ROOT_LIST_ID,
+  syncTextAcross,
+  updateBlockDeep,
+  updateList,
+  visibleFlatBlocks,
+  type BlockListId,
+} from "@/lib/gaia/tree";
 import { IconPicker, RefPickerDialog, VersionsDialog } from "./gaia-editor-dialogs";
 import { NotePrintDialog } from "./gaia-print";
 
@@ -79,6 +121,10 @@ interface DraftState {
   tagIds: string[];
   favorite: boolean;
   blocks: GaiaBlock[];
+  /** Module 1 : couverture (JSON sérialisé, null = aucune). */
+  cover: string | null;
+  /** Module 1 : objectif d'écriture de la note (mots), null = aucun. */
+  wordGoal: number | null;
 }
 
 function emptyDraft(): DraftState {
@@ -89,20 +135,176 @@ function emptyDraft(): DraftState {
     tagIds: [],
     favorite: false,
     blocks: [{ id: newBlockId(), type: "paragraph", text: "" }],
+    cover: null,
+    wordGoal: null,
   };
 }
 
-function countWords(blocks: GaiaBlock[]): number {
-  let n = 0;
-  for (const block of blocks) {
-    if (block.text.trim() !== "") n += block.text.trim().split(/\s+/).length;
+/** Clone profond avec nouveaux ids (la copie synchronisée garde son syncId). */
+function cloneBlockDeep(block: GaiaBlock): GaiaBlock {
+  const next: GaiaBlock = { ...structuredClone(block), id: newBlockId() };
+  if (block.children) next.children = block.children.map(cloneBlockDeep);
+  if (block.columns) next.columns = block.columns.map((col) => col.map(cloneBlockDeep));
+  return next;
+}
+
+function newSyncId(): string {
+  return `sy-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
+}
+
+/** Statistiques avancées (E11) : mots visibles (marqueurs exclus), caractères, etc. */
+function editorStats(blocks: GaiaBlock[]): EditorStats {
+  const flat = flattenBlocks(blocks);
+  let words = 0;
+  let chars = 0;
+  for (const block of flat) {
+    const text = stripInlineMarkers(block.text);
+    if (text.trim() !== "") words += text.trim().split(/\s+/).length;
+    chars += text.replace(/\s+/g, "").length;
     if (block.type === "table" && block.rows) {
-      for (const row of block.rows)
-        for (const cell of row)
-          if (cell.trim() !== "") n += cell.trim().split(/\s+/).length;
+      for (const row of block.rows) {
+        for (const cell of row) {
+          if (cell.trim() !== "") words += cell.trim().split(/\s+/).length;
+          chars += cell.replace(/\s+/g, "").length;
+        }
+      }
     }
   }
-  return n;
+  const paragraphs = flat.filter((b) =>
+    ["paragraph", "bullet", "numbered", "todo", "quote", "callout", "toggle", "synced"].includes(
+      b.type,
+    ),
+  ).length;
+  const todos = flat.filter((b) => b.type === "todo");
+  return {
+    words,
+    chars,
+    paragraphs,
+    headings: extractHeadings(blocks).length,
+    todosOpen: todos.filter((b) => !b.checked).length,
+    todosTotal: todos.length,
+    readingMinutes: Math.max(1, Math.ceil(words / 200)),
+  };
+}
+
+/** Lignes Markdown d'une liste de blocs (récursif : enfants + colonnes). */
+export function blocksToMarkdownLines(blocks: GaiaBlock[], t: GaiaT): string[] {
+  const lines: string[] = [];
+  const refLabel = (kind: GaiaRefKind) => t(`gaia.refKinds.${kind.toLowerCase()}`);
+  const pushChildren = (block: GaiaBlock, depth: number) => {
+    if (block.type !== "toggle" && block.type !== "columns" && block.children) {
+      lines.push(...blocksToMarkdownLinesDepth(block.children, t, depth + 1));
+    }
+  };
+  const walk = (list: GaiaBlock[], depth: number) => {
+    const indent = "  ".repeat(depth);
+    for (const block of list) {
+      switch (block.type) {
+        case "h1":
+          lines.push(`${indent}# ${block.text}`, "");
+          break;
+        case "h2":
+          lines.push(`${indent}## ${block.text}`, "");
+          break;
+        case "h3":
+          lines.push(`${indent}### ${block.text}`, "");
+          break;
+        case "bullet":
+          lines.push(`${indent}- ${block.text}`);
+          break;
+        case "numbered":
+          lines.push(`${indent}1. ${block.text}`);
+          break;
+        case "todo":
+          lines.push(`${indent}- [${block.checked ? "x" : " "}] ${block.text}`);
+          break;
+        case "quote":
+          lines.push(`${indent}> ${block.text}`, "");
+          break;
+        case "callout":
+          lines.push(`${indent}> **${(block.tone ?? "info").toUpperCase()}** — ${block.text}`, "");
+          break;
+        case "code":
+          lines.push(`${indent}\`\`\``, block.text, "```", "");
+          break;
+        case "divider":
+          lines.push(`${indent}---`, "");
+          break;
+        case "image": {
+          if (block.src) lines.push(`${indent}![${block.alt ?? block.caption ?? "image"}](${block.src})`);
+          if (block.caption) lines.push(`${indent}*${block.caption}*`);
+          lines.push("");
+          break;
+        }
+        case "table": {
+          const rows = block.rows ?? [];
+          if (rows.length > 0) {
+            lines.push(`${indent}| ${rows[0]!.join(" | ")} |`);
+            lines.push(`${indent}| ${rows[0]!.map(() => "---").join(" | ")} |`);
+            for (const row of rows.slice(1)) lines.push(`${indent}| ${row.join(" | ")} |`);
+            lines.push("");
+          }
+          break;
+        }
+        case "ref": {
+          if (block.ref) {
+            const kindLabel = refLabel(block.ref.kind);
+            const label = block.ref.label ?? kindLabel;
+            lines.push(
+              `${indent}> **${kindLabel}** — ${label}${block.ref.href ? ` (${block.ref.href})` : ""}`,
+              "",
+            );
+          }
+          break;
+        }
+        case "toggle":
+          lines.push(`${indent}**${block.text}**`, "");
+          if (block.children) lines.push(...blocksToMarkdownLinesDepth(block.children, t, depth + 1));
+          break;
+        case "columns":
+          for (const col of block.columns ?? []) {
+            lines.push(...blocksToMarkdownLinesDepth(col, t, depth));
+            lines.push("");
+          }
+          break;
+        case "equation":
+          lines.push(`${indent}$$${block.text}$$`, "");
+          break;
+        case "drawing":
+          if (block.src) lines.push(`${indent}![drawing](${block.src})`, "");
+          break;
+        case "mermaid":
+          lines.push(`${indent}\`\`\`mermaid`, block.text, "```", "");
+          break;
+        case "embed":
+          if (block.text.trim() !== "") lines.push(`${indent}[${block.text}](${block.text})`, "");
+          break;
+        case "toc":
+          lines.push(`${indent}<!-- table of contents -->`, "");
+          break;
+        case "synced":
+          lines.push(`${indent}${block.text}`, "");
+          break;
+        default:
+          lines.push(`${indent}${block.text}`, "");
+      }
+      pushChildren(block, depth);
+    }
+  };
+  walk(blocks, 0);
+  return lines;
+}
+
+function blocksToMarkdownLinesDepth(blocks: GaiaBlock[], t: GaiaT, depth: number): string[] {
+  const lines: string[] = [];
+  const indent = "  ".repeat(depth);
+  for (const block of blocks) {
+    const sub = blocksToMarkdownLines([block], t).map((l) =>
+      l === "" ? "" : `${indent}${l}`,
+    );
+    lines.push(...sub);
+  }
+  return lines;
 }
 
 export function blocksToMarkdown(
@@ -111,70 +313,7 @@ export function blocksToMarkdown(
   t: GaiaT,
 ): string {
   const lines: string[] = [`# ${title === "" ? t("gaia.shared.untitledNote") : title}`, ""];
-  const refLabel = (kind: GaiaRefKind) => t(`gaia.refKinds.${kind.toLowerCase()}`);
-  for (const block of blocks) {
-    switch (block.type) {
-      case "h1":
-        lines.push(`# ${block.text}`, "");
-        break;
-      case "h2":
-        lines.push(`## ${block.text}`, "");
-        break;
-      case "h3":
-        lines.push(`### ${block.text}`, "");
-        break;
-      case "bullet":
-        lines.push(`- ${block.text}`);
-        break;
-      case "numbered":
-        lines.push(`1. ${block.text}`);
-        break;
-      case "todo":
-        lines.push(`- [${block.checked ? "x" : " "}] ${block.text}`);
-        break;
-      case "quote":
-        lines.push(`> ${block.text}`, "");
-        break;
-      case "callout":
-        lines.push(`> **${(block.tone ?? "info").toUpperCase()}** — ${block.text}`, "");
-        break;
-      case "code":
-        lines.push("```", block.text, "```", "");
-        break;
-      case "divider":
-        lines.push("---", "");
-        break;
-      case "image": {
-        if (block.src) lines.push(`![${block.alt ?? block.caption ?? "image"}](${block.src})`);
-        if (block.caption) lines.push(`*${block.caption}*`);
-        lines.push("");
-        break;
-      }
-      case "table": {
-        const rows = block.rows ?? [];
-        if (rows.length > 0) {
-          lines.push(`| ${rows[0]!.join(" | ")} |`);
-          lines.push(`| ${rows[0]!.map(() => "---").join(" | ")} |`);
-          for (const row of rows.slice(1)) lines.push(`| ${row.join(" | ")} |`);
-          lines.push("");
-        }
-        break;
-      }
-      case "ref": {
-        if (block.ref) {
-          const kindLabel = refLabel(block.ref.kind);
-          const label = block.ref.label ?? kindLabel;
-          lines.push(
-            `> **${kindLabel}** — ${label}${block.ref.href ? ` (${block.ref.href})` : ""}`,
-            "",
-          );
-        }
-        break;
-      }
-      default:
-        lines.push(block.text, "");
-    }
-  }
+  lines.push(...blocksToMarkdownLines(blocks, t));
   return lines.join("\n");
 }
 
@@ -223,6 +362,21 @@ export function GaiaEditor({
   const createTag = useCreateGaiaTag();
   const createTemplate = useCreateGaiaTemplate();
   const restoreVersion = useRestoreGaiaVersion();
+  const queryClient = useQueryClient();
+  const settingsQuery = useGaiaSettings();
+  const todayQuery = useGaiaTodayWords();
+  const updateSettings = useUpdateGaiaSettings();
+  // Auteur des commentaires : nom d'affichage de la session.
+  const meQuery = useQuery({
+    queryKey: ["gaia", "me"],
+    queryFn: () =>
+      apiFetch<{ user: { displayName?: string }; profile?: { displayName?: string } }>(
+        "/api/auth/me",
+      ),
+    staleTime: 60_000,
+  });
+  const authorName =
+    meQuery.data?.profile?.displayName ?? meQuery.data?.user?.displayName ?? "";
 
   const [draft, setDraft] = React.useState<DraftState | null>(null);
   const [status, setStatus] = React.useState<SaveStatus>("saved");
@@ -240,13 +394,29 @@ export function GaiaEditor({
     rect: { top: number; left: number };
   } | null>(null);
   const [slashActive, setSlashActive] = React.useState(0);
-  const [dragState, setDragState] = React.useState<{
-    dragId: string | null;
-    overId: string | null;
-    position: "above" | "below" | null;
-  }>({ dragId: null, overId: null, position: null });
+  const [dragState, setDragState] = React.useState<DragState>({
+    dragId: null,
+    overId: null,
+    overListId: null,
+    position: null,
+  });
   const [newTagName, setNewTagName] = React.useState("");
   const [restoringId, setRestoringId] = React.useState<string | null>(null);
+  // Module 1 — édition / sommaire / sélection / commentaires / dialogues.
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [outlineOpen, setOutlineOpen] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<ReadonlySet<string>>(new Set());
+  const [openCommentsId, setOpenCommentsId] = React.useState<string | null>(null);
+  const [moveDialog, setMoveDialog] = React.useState<{
+    open: boolean;
+    mode: "move" | "copySynced";
+    blockIds: string[];
+  }>({ open: false, mode: "move", blockIds: [] });
+  const [customSlashOpen, setCustomSlashOpen] = React.useState(false);
+  const [customCommands, setCustomCommands] = React.useState<GaiaCustomSlashCommand[]>(() =>
+    typeof window === "undefined" ? [] : loadCustomSlashCommands(),
+  );
+  const dailyGoalTimerRef = React.useRef<number | null>(null);
 
   const draftRef = React.useRef<DraftState | null>(null);
   const dirtyRef = React.useRef(false);
@@ -281,6 +451,8 @@ export function GaiaEditor({
           tagIds: current.tagIds,
           favorite: current.favorite,
           blocks: current.blocks,
+          cover: current.cover,
+          wordGoal: current.wordGoal,
         },
       });
       dirtyRef.current = false;
@@ -333,6 +505,8 @@ export function GaiaEditor({
         serverNote.blocks.length > 0
           ? serverNote.blocks
           : [{ id: newBlockId(), type: "paragraph", text: "" }],
+      cover: serverNote.cover ?? null,
+      wordGoal: serverNote.wordGoal ?? null,
     };
     setDraftState(next);
     setSavedAt(serverNote.updatedAt);
@@ -359,6 +533,17 @@ export function GaiaEditor({
     }
   }, [draft]);
 
+  // Focus the textarea when a block enters edit mode (preview → édition).
+  React.useEffect(() => {
+    if (!editingId) return;
+    const el = textAreasRef.current.get(editingId);
+    if (el) {
+      el.focus();
+      const pos = el.value.length;
+      el.setSelectionRange(pos, pos);
+    }
+  }, [editingId]);
+
   // Reposition the slash menu on any scroll / resize (never close it).
   React.useEffect(() => {
     if (!slash) return;
@@ -379,6 +564,7 @@ export function GaiaEditor({
   }, [slash]);
 
   const focusBlock = React.useCallback((id: string, at: "start" | "end") => {
+    setEditingId(id);
     pendingFocusRef.current = { id, at };
     const el = textAreasRef.current.get(id);
     if (el) {
@@ -392,32 +578,42 @@ export function GaiaEditor({
   const ops: GaiaBlockOps = React.useMemo(
     () => ({
       updateText: (id, text) => {
-        applyDraft((d) => ({
-          ...d,
-          blocks: d.blocks.map((b) => (b.id === id ? { ...b, text } : b)),
-        }));
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, id);
+        if (!block) return;
+        // E08 : éditer une copie synchronisée propage le texte aux autres copies.
+        if (block.type === "synced" && block.syncId) {
+          const syncId = block.syncId;
+          applyDraft((prev) => ({
+            ...prev,
+            blocks: syncTextAcross(
+              updateBlockDeep(prev.blocks, id, { text }),
+              syncId,
+              text,
+            ),
+          }));
+        } else {
+          applyDraft((prev) => ({
+            ...prev,
+            blocks: updateBlockDeep(prev.blocks, id, { text }),
+          }));
+        }
       },
       updateBlock: (id, patch) => {
-        applyDraft((d) => ({
-          ...d,
-          blocks: d.blocks.map((b) => {
-            if (b.id !== id) return b;
-            const next: GaiaBlock = { ...b };
-            const record = next as unknown as Record<string, unknown>;
-            for (const [k, v] of Object.entries(patch)) {
-              if (v === undefined) delete record[k];
-              else record[k] = v;
-            }
-            return next;
-          }),
+        applyDraft((prev) => ({
+          ...prev,
+          blocks: updateBlockDeep(prev.blocks, id, patch),
         }));
       },
       splitBlock: (id, at) => {
         const d = draftRef.current;
         if (!d) return;
-        const idx = d.blocks.findIndex((b) => b.id === id);
-        if (idx < 0) return;
-        const block = d.blocks[idx];
+        const loc = findBlockLocation(d.blocks, id);
+        if (!loc) return;
+        const list = getList(d.blocks, loc.listId);
+        if (!list) return;
+        const block = list[loc.index];
         const before = block.text.slice(0, at);
         const after = block.text.slice(at);
         const keepType =
@@ -428,103 +624,156 @@ export function GaiaEditor({
           text: after,
           checked: block.type === "todo" ? false : undefined,
         };
-        const blocks = [...d.blocks];
-        blocks[idx] = { ...block, text: before };
-        blocks.splice(idx + 1, 0, nextBlock);
         pendingFocusRef.current = { id: nextBlock.id, at: "start" };
-        applyDraft((prev) => ({ ...prev, blocks }));
+        applyDraft((prev) => {
+          let blocks = updateBlockDeep(prev.blocks, id, { text: before });
+          blocks = insertIntoList(blocks, loc.listId, loc.index + 1, nextBlock);
+          return { ...prev, blocks };
+        });
       },
       mergeBackward: (id) => {
         const d = draftRef.current;
         if (!d) return;
-        const idx = d.blocks.findIndex((b) => b.id === id);
-        if (idx < 0) return;
-        const block = d.blocks[idx];
-        if (idx === 0) {
-          if (block.text === "" && d.blocks.length > 1) {
-            const blocks = d.blocks.slice(1);
-            pendingFocusRef.current = { id: blocks[0].id, at: "start" };
-            applyDraft((prev) => ({ ...prev, blocks }));
+        const loc = findBlockLocation(d.blocks, id);
+        if (!loc) return;
+        const list = getList(d.blocks, loc.listId);
+        if (!list) return;
+        const block = list[loc.index];
+        if (loc.index > 0) {
+          const prev = list[loc.index - 1];
+          if (TEXT_BLOCK_TYPES.includes(prev.type)) {
+            const at = prev.text.length;
+            const merged = prev.text + block.text;
+            const el = textAreasRef.current.get(prev.id);
+            if (el) {
+              // Uncontrolled field: write the merged text in the DOM directly.
+              el.value = merged;
+              el.style.height = "auto";
+              el.style.height = `${el.scrollHeight}px`;
+              el.focus();
+              el.setSelectionRange(at, at);
+            } else {
+              pendingFocusRef.current = { id: prev.id, at: "end" };
+            }
+            applyDraft((p) => {
+              let blocks = updateBlockDeep(p.blocks, prev.id, { text: merged });
+              blocks = removeBlockDeep(blocks, id).blocks;
+              return { ...p, blocks };
+            });
+          } else if (block.text === "") {
+            pendingFocusRef.current = { id: prev.id, at: "end" };
+            applyDraft((p) => ({ ...p, blocks: removeBlockDeep(p.blocks, id).blocks }));
           }
           return;
         }
-        const prev = d.blocks[idx - 1];
-        const textTypes = ["paragraph", "h1", "h2", "h3", "bullet", "numbered", "todo", "quote", "callout", "code"];
-        if (textTypes.includes(prev.type)) {
-          const at = prev.text.length;
-          const merged = prev.text + block.text;
-          const blocks = [...d.blocks];
-          blocks[idx - 1] = { ...prev, text: merged };
-          blocks.splice(idx, 1);
-          const el = textAreasRef.current.get(prev.id);
-          if (el) {
-            // Uncontrolled field: write the merged text in the DOM directly.
-            el.value = merged;
-            el.style.height = "auto";
-            el.style.height = `${el.scrollHeight}px`;
-            el.focus();
-            el.setSelectionRange(at, at);
+        // Premier de sa liste : remonter vers le parent.
+        if (loc.parentId) {
+          const parent = findBlock(d.blocks, loc.parentId);
+          if (block.text === "") {
+            pendingFocusRef.current = { id: loc.parentId, at: "end" };
+            applyDraft((p) => ({ ...p, blocks: removeBlockDeep(p.blocks, id).blocks }));
+          } else if (parent && TEXT_BLOCK_TYPES.includes(parent.type)) {
+            const at = parent.text.length;
+            const merged = parent.text + block.text;
+            pendingFocusRef.current = { id: parent.id, at: "end" };
+            applyDraft((p) => {
+              let blocks = updateBlockDeep(p.blocks, parent.id, { text: merged });
+              blocks = removeBlockDeep(blocks, id).blocks;
+              return { ...p, blocks };
+            });
           } else {
-            pendingFocusRef.current = { id: prev.id, at: "end" };
+            // Parent non textuel : on sort le bloc après le parent.
+            const parentLoc = findBlockLocation(d.blocks, loc.parentId);
+            if (parentLoc) {
+              applyDraft((p) => ({
+                ...p,
+                blocks: moveBlockDeep(p.blocks, id, parentLoc.listId, parentLoc.index + 1),
+              }));
+            }
           }
-          applyDraft((p) => ({ ...p, blocks }));
-        } else if (block.text === "") {
-          const blocks = d.blocks.filter((b) => b.id !== id);
-          pendingFocusRef.current = { id: prev.id, at: "end" };
-          applyDraft((p) => ({ ...p, blocks }));
+        } else if (block.text === "" && d.blocks.length > 1) {
+          const blocks = d.blocks.slice(1);
+          pendingFocusRef.current = { id: blocks[0].id, at: "start" };
+          applyDraft((prev) => ({ ...prev, blocks }));
         }
       },
       deleteBlock: (id) => {
         const d = draftRef.current;
         if (!d) return;
-        let blocks = d.blocks.filter((b) => b.id !== id);
-        if (blocks.length === 0) blocks = [{ id: newBlockId(), type: "paragraph", text: "" }];
-        const idx = d.blocks.findIndex((b) => b.id === id);
-        const neighbor = blocks[Math.min(Math.max(idx - 1, 0), blocks.length - 1)];
-        if (neighbor) pendingFocusRef.current = { id: neighbor.id, at: "end" };
+        const visible = visibleFlatBlocks(d.blocks);
+        const idx = visible.findIndex((b) => b.id === id);
+        let blocks = removeBlockDeep(d.blocks, id).blocks;
+        if (countBlocksDeep(blocks) === 0) {
+          blocks = [{ id: newBlockId(), type: "paragraph", text: "" }];
+        }
+        const neighbor = visible[Math.min(Math.max(idx - 1, 0), visible.length - 1)];
+        if (neighbor && neighbor.id !== id) {
+          pendingFocusRef.current = { id: neighbor.id, at: "end" };
+        }
         applyDraft((p) => ({ ...p, blocks }));
       },
       duplicateBlock: (id) => {
         const d = draftRef.current;
         if (!d) return;
-        const idx = d.blocks.findIndex((b) => b.id === id);
-        if (idx < 0) return;
-        const copy: GaiaBlock = { ...structuredClone(d.blocks[idx]), id: newBlockId() };
-        const blocks = [...d.blocks];
-        blocks.splice(idx + 1, 0, copy);
+        const loc = findBlockLocation(d.blocks, id);
+        if (!loc) return;
+        const block = findBlock(d.blocks, id);
+        if (!block) return;
+        const copy = cloneBlockDeep(block);
         pendingFocusRef.current = { id: copy.id, at: "end" };
-        applyDraft((p) => ({ ...p, blocks }));
+        applyDraft((p) => ({
+          ...p,
+          blocks: insertIntoList(p.blocks, loc.listId, loc.index + 1, copy),
+        }));
       },
       moveBlock: (id, dir) => {
         const d = draftRef.current;
         if (!d) return;
-        const idx = d.blocks.findIndex((b) => b.id === id);
-        const swap = idx + dir;
-        if (idx < 0 || swap < 0 || swap >= d.blocks.length) return;
-        const blocks = [...d.blocks];
-        [blocks[idx], blocks[swap]] = [blocks[swap], blocks[idx]];
-        applyDraft((p) => ({ ...p, blocks }));
+        const loc = findBlockLocation(d.blocks, id);
+        if (!loc) return;
+        const list = getList(d.blocks, loc.listId);
+        if (!list) return;
+        const swap = loc.index + dir;
+        if (swap < 0 || swap >= list.length) return;
+        applyDraft((p) => ({
+          ...p,
+          blocks: updateList(p.blocks, loc.listId, (l) => {
+            const next = [...l];
+            [next[loc.index], next[swap]] = [next[swap], next[loc.index]];
+            return next;
+          }),
+        }));
       },
       reorder: (dragId, targetId, position) => {
         const d = draftRef.current;
         if (!d || dragId === targetId) return;
-        const dragged = d.blocks.find((b) => b.id === dragId);
-        if (!dragged) return;
-        const rest = d.blocks.filter((b) => b.id !== dragId);
-        const targetIdx = rest.findIndex((b) => b.id === targetId);
-        if (targetIdx < 0) return;
-        rest.splice(targetIdx + (position === "below" ? 1 : 0), 0, dragged);
-        applyDraft((p) => ({ ...p, blocks: rest }));
+        const loc = findBlockLocation(d.blocks, targetId);
+        if (!loc) return;
+        applyDraft((p) => ({
+          ...p,
+          blocks: moveBlockDeep(
+            p.blocks,
+            dragId,
+            loc.listId,
+            loc.index + (position === "below" ? 1 : 0),
+          ),
+        }));
+      },
+      moveBlockToList: (dragId, targetListId, targetIndex) => {
+        applyDraft((p) => ({
+          ...p,
+          blocks: moveBlockDeep(p.blocks, dragId, targetListId, targetIndex),
+        }));
       },
       focusBlock,
       focusNeighbor: (id, dir) => {
         const d = draftRef.current;
         if (!d) return;
-        const idx = d.blocks.findIndex((b) => b.id === id);
-        const textTypes = ["paragraph", "h1", "h2", "h3", "bullet", "numbered", "todo", "quote", "callout", "code"];
-        for (let i = idx + dir; i >= 0 && i < d.blocks.length; i += dir) {
-          if (!textTypes.includes(d.blocks[i].type)) continue;
-          const el = textAreasRef.current.get(d.blocks[i].id);
+        const visible = visibleFlatBlocks(d.blocks);
+        const idx = visible.findIndex((b) => b.id === id);
+        for (let i = idx + dir; i >= 0 && i < visible.length; i += dir) {
+          if (!TEXT_BLOCK_TYPES.includes(visible[i].type)) continue;
+          const el = textAreasRef.current.get(visible[i].id);
           if (el) {
             el.focus();
             const pos = dir === 1 ? 0 : el.value.length;
@@ -555,6 +804,172 @@ export function GaiaEditor({
         setSlashActive(0);
       },
       closeSlashMenu: () => setSlash(null),
+      clearEditing: () => setEditingId(null),
+      indentBlock: (id) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const loc = findBlockLocation(d.blocks, id);
+        if (!loc || loc.depth >= 3 || loc.index === 0) return;
+        const list = getList(d.blocks, loc.listId);
+        if (!list) return;
+        const prev = list[loc.index - 1];
+        const block = findBlock(d.blocks, id);
+        if (!block || !prev) return;
+        const without = removeBlockDeep(d.blocks, id).blocks;
+        const targetListId = childrenListId(prev.id);
+        const target = getList(without, targetListId) ?? [];
+        applyDraft((p) => ({
+          ...p,
+          blocks: insertIntoList(without, targetListId, target.length, block),
+        }));
+      },
+      outdentBlock: (id) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const loc = findBlockLocation(d.blocks, id);
+        if (!loc || loc.depth === 0 || !loc.parentId) return;
+        const parentLoc = findBlockLocation(d.blocks, loc.parentId);
+        if (!parentLoc) return;
+        const block = findBlock(d.blocks, id);
+        if (!block) return;
+        const without = removeBlockDeep(d.blocks, id).blocks;
+        applyDraft((p) => ({
+          ...p,
+          blocks: insertIntoList(without, parentLoc.listId, parentLoc.index + 1, block),
+        }));
+      },
+      toggleCollapse: (id) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, id);
+        if (!block) return;
+        applyDraft((p) => ({
+          ...p,
+          blocks: updateBlockDeep(p.blocks, id, { collapsed: !(block.collapsed ?? false) }),
+        }));
+      },
+      addColumn: (id) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, id);
+        if (!block) return;
+        const newColumn: GaiaBlock[] = [{ id: newBlockId(), type: "paragraph", text: "" }];
+        const columns: GaiaBlock[][] = [...(block.columns ?? [[], []]), newColumn];
+        applyDraft((p) => ({ ...p, blocks: updateBlockDeep(p.blocks, id, { columns }) }));
+      },
+      removeColumn: (id, colIndex) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, id);
+        if (!block) return;
+        const columns = [...(block.columns ?? [])];
+        const removed = columns.splice(colIndex, 1)[0] ?? [];
+        if (columns.length === 0) {
+          // Dernière colonne : on déplie ses blocs dans la liste parente.
+          const loc = findBlockLocation(d.blocks, id);
+          if (!loc) return;
+          const without = removeBlockDeep(d.blocks, id).blocks;
+          let next = without;
+          removed.forEach((b, i) => {
+            next = insertIntoList(next, loc.listId, loc.index + i, b);
+          });
+          applyDraft((p) => ({ ...p, blocks: next }));
+          return;
+        }
+        const target = colIndex > 0 ? colIndex - 1 : 0;
+        columns[target] = [...columns[target], ...removed];
+        applyDraft((p) => ({ ...p, blocks: updateBlockDeep(p.blocks, id, { columns }) }));
+      },
+      addBlockToList: (listId) => {
+        const block: GaiaBlock = { id: newBlockId(), type: "paragraph", text: "" };
+        pendingFocusRef.current = { id: block.id, at: "start" };
+        applyDraft((p) => ({
+          ...p,
+          blocks: insertIntoList(
+            p.blocks,
+            listId,
+            getList(p.blocks, listId)?.length ?? 0,
+            block,
+          ),
+        }));
+      },
+      addComment: (blockId, text, author) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, blockId);
+        if (!block) return;
+        const comment = {
+          id: `cm-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`,
+          author,
+          text,
+          createdAt: new Date().toISOString(),
+          resolved: false,
+        };
+        applyDraft((p) => ({
+          ...p,
+          blocks: updateBlockDeep(p.blocks, blockId, {
+            comments: [...(block.comments ?? []), comment],
+          }),
+        }));
+      },
+      toggleCommentResolved: (blockId, commentId) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, blockId);
+        if (!block) return;
+        const comments = (block.comments ?? []).map((c) =>
+          c.id === commentId ? { ...c, resolved: !c.resolved } : c,
+        );
+        applyDraft((p) => ({
+          ...p,
+          blocks: updateBlockDeep(p.blocks, blockId, { comments }),
+        }));
+      },
+      deleteComment: (blockId, commentId) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, blockId);
+        if (!block) return;
+        const comments = (block.comments ?? []).filter((c) => c.id !== commentId);
+        applyDraft((p) => ({
+          ...p,
+          blocks: updateBlockDeep(p.blocks, blockId, {
+            comments: comments.length > 0 ? comments : undefined,
+          }),
+        }));
+      },
+      navigateToBlock: (id) => {
+        setEditingId(id);
+        pendingFocusRef.current = { id, at: "start" };
+        requestAnimationFrame(() => {
+          document
+            .querySelector(`[data-block-id="${id}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+          const el = textAreasRef.current.get(id);
+          if (el) {
+            el.focus();
+            el.setSelectionRange(0, 0);
+          }
+        });
+      },
+      openMoveToNote: (blockId) =>
+        setMoveDialog({ open: true, mode: "move", blockIds: [blockId] }),
+      openCopySynced: (blockId) => {
+        const d = draftRef.current;
+        const block = d ? findBlock(d.blocks, blockId) : null;
+        if (block && block.type !== "synced") ops.makeSynced(blockId);
+        setMoveDialog({ open: true, mode: "copySynced", blockIds: [blockId] });
+      },
+      makeSynced: (id) => {
+        const d = draftRef.current;
+        if (!d) return;
+        const block = findBlock(d.blocks, id);
+        if (!block || block.type === "synced") return;
+        applyDraft((p) => ({
+          ...p,
+          blocks: updateBlockDeep(p.blocks, id, { type: "synced", syncId: newSyncId() }),
+        }));
+      },
     }),
     [applyDraft, focusBlock],
   );
@@ -572,12 +987,15 @@ export function GaiaEditor({
         ops.updateBlock(sourceId, { type: "divider", text: "" });
         const d = draftRef.current;
         if (d) {
-          const idx = d.blocks.findIndex((b) => b.id === sourceId);
-          const para: GaiaBlock = { id: newBlockId(), type: "paragraph", text: "" };
-          const blocks = [...d.blocks];
-          blocks.splice(idx + 1, 0, para);
-          pendingFocusRef.current = { id: para.id, at: "start" };
-          applyDraft((p) => ({ ...p, blocks }));
+          const loc = findBlockLocation(d.blocks, sourceId);
+          if (loc) {
+            const para: GaiaBlock = { id: newBlockId(), type: "paragraph", text: "" };
+            pendingFocusRef.current = { id: para.id, at: "start" };
+            applyDraft((p) => ({
+              ...p,
+              blocks: insertIntoList(p.blocks, loc.listId, loc.index + 1, para),
+            }));
+          }
         }
         setSlash(null);
         return;
@@ -592,11 +1010,33 @@ export function GaiaEditor({
           ],
         });
       } else if (item.type === "callout") {
-        ops.updateBlock(sourceId, { type: "callout", text: "", tone: "info" });
+        ops.updateBlock(sourceId, { type: "callout", text: item.presetText ?? "", tone: "info" });
       } else if (item.type === "todo") {
-        ops.updateBlock(sourceId, { type: "todo", text: "", checked: false });
+        ops.updateBlock(sourceId, { type: "todo", text: item.presetText ?? "", checked: false });
+      } else if (item.type === "toggle") {
+        ops.updateBlock(sourceId, {
+          type: "toggle",
+          text: item.presetText ?? "",
+          children: [{ id: newBlockId(), type: "paragraph", text: "" }],
+          collapsed: false,
+        });
+      } else if (item.type === "columns") {
+        ops.updateBlock(sourceId, {
+          type: "columns",
+          text: "",
+          columns: [
+            [{ id: newBlockId(), type: "paragraph", text: item.presetText ?? "" }],
+            [{ id: newBlockId(), type: "paragraph", text: "" }],
+          ],
+        });
+      } else if (item.type === "synced") {
+        ops.updateBlock(sourceId, {
+          type: "synced",
+          text: item.presetText ?? "",
+          syncId: newSyncId(),
+        });
       } else {
-        ops.updateBlock(sourceId, { type: item.type, text: "" });
+        ops.updateBlock(sourceId, { type: item.type, text: item.presetText ?? "" });
       }
       setSlash(null);
       ops.focusBlock(sourceId, "end");
@@ -615,16 +1055,28 @@ export function GaiaEditor({
       };
       const d = draftRef.current;
       if (!d) return;
-      const idx = sourceId ? d.blocks.findIndex((b) => b.id === sourceId) : -1;
-      const blocks = [...d.blocks];
-      if (idx >= 0 && blocks[idx].type === "paragraph" && blocks[idx].text === "") {
-        blocks[idx] = refBlock;
-      } else if (idx >= 0) {
-        blocks.splice(idx + 1, 0, refBlock);
+      const loc = sourceId ? findBlockLocation(d.blocks, sourceId) : null;
+      if (loc && sourceId) {
+        const list = getList(d.blocks, loc.listId) ?? [];
+        const source = list[loc.index];
+        if (source.type === "paragraph" && source.text === "") {
+          applyDraft((p) => ({
+            ...p,
+            blocks: updateBlockDeep(p.blocks, sourceId, {
+              type: "ref",
+              text: "",
+              ref: refBlock.ref,
+            }),
+          }));
+        } else {
+          applyDraft((p) => ({
+            ...p,
+            blocks: insertIntoList(p.blocks, loc.listId, loc.index + 1, refBlock),
+          }));
+        }
       } else {
-        blocks.push(refBlock);
+        applyDraft((p) => ({ ...p, blocks: [...p.blocks, refBlock] }));
       }
-      applyDraft((p) => ({ ...p, blocks }));
       setRefPicker((prev) => ({ ...prev, open: false }));
     },
     [applyDraft, refPicker.sourceBlockId],
@@ -632,16 +1084,298 @@ export function GaiaEditor({
 
   const slashItems = React.useMemo(() => {
     if (!slash) return [];
-    const all = slashItemsFor(tr);
+    const all = slashItemsFor(tr, customCommands);
     const q = slash.query.toLowerCase();
     return all.filter(
-      (item) => item.cmd.includes(q) || item.label.toLowerCase().includes(q),
+      (item) =>
+        item.cmd.includes(q) ||
+        item.label.toLowerCase().includes(q) ||
+        item.desc.toLowerCase().includes(q) ||
+        (item.keywords ?? "").includes(q),
     );
-  }, [slash, tr]);
+  }, [slash, tr, customCommands]);
+
+  // ── Module 1 : formatage riche (E01/E02) ───────────────────────────────
+  const applyFormat = React.useCallback(
+    (kind: FormatKind) => {
+      const active = document.activeElement as HTMLTextAreaElement | null;
+      let ta: HTMLTextAreaElement | null = null;
+      if (active && active.tagName === "TEXTAREA") ta = active;
+      else if (editingId) ta = textAreasRef.current.get(editingId) ?? null;
+      if (!ta) return;
+      const start = ta.selectionStart ?? 0;
+      const end = ta.selectionEnd ?? 0;
+      const value = ta.value;
+      const selected = value.slice(start, end);
+      const wrap = (before: string, after: string) => {
+        const next = `${value.slice(0, start)}${before}${selected}${after}${value.slice(end)}`;
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          "value",
+        )?.set;
+        setter?.call(ta, next);
+        const cursor =
+          selected === "" ? start + before.length : end + before.length + after.length;
+        ta.setSelectionRange(cursor, cursor);
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      switch (kind) {
+        case "bold":
+          wrap("**", "**");
+          break;
+        case "italic":
+          wrap("*", "*");
+          break;
+        case "underline":
+          wrap("__", "__");
+          break;
+        case "strike":
+          wrap("~~", "~~");
+          break;
+        case "highlight":
+          wrap("==", "==");
+          break;
+        case "code":
+          wrap("`", "`");
+          break;
+        case "clear":
+          if (selected !== "") {
+            const clean = stripInlineMarkers(selected);
+            const next = `${value.slice(0, start)}${clean}${value.slice(end)}`;
+            const setter = Object.getOwnPropertyDescriptor(
+              window.HTMLTextAreaElement.prototype,
+              "value",
+            )?.set;
+            setter?.call(ta, next);
+            ta.setSelectionRange(start + clean.length, start + clean.length);
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          break;
+        default:
+          if (kind.startsWith("color:")) wrap(`[${kind.slice(6)}]`, "[/]");
+          break;
+      }
+    },
+    [editingId],
+  );
+
+  // ── Module 1 : déplacement / copie vers une note (E04/E08) ─────────────
+  const executeMoveDialog = React.useCallback(
+    async (targetNoteId: string) => {
+      const d = draftRef.current;
+      if (!d || moveDialog.blockIds.length === 0) return;
+      const mode = moveDialog.mode;
+      const flat = flattenBlocks(d.blocks);
+      const moving = moveDialog.blockIds
+        .map((id) => flat.find((b) => b.id === id))
+        .filter((b): b is GaiaBlock => !!b);
+      if (moving.length === 0) return;
+      try {
+        const target = await apiFetch<{ note: { blocks: GaiaBlock[] } }>(
+          `/api/v1/gaia/notes/${targetNoteId}`,
+        );
+        const targetBlocks = [...target.note.blocks, ...moving.map((b) => structuredClone(b))];
+        await apiFetch(`/api/v1/gaia/notes/${targetNoteId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ blocks: targetBlocks }),
+        });
+        if (mode === "move") {
+          applyDraft((prev) => {
+            let blocks = prev.blocks;
+            for (const b of moving) blocks = removeBlockDeep(blocks, b.id).blocks;
+            if (countBlocksDeep(blocks) === 0) {
+              blocks = [{ id: newBlockId(), type: "paragraph", text: "" }];
+            }
+            return { ...prev, blocks };
+          });
+          setSelectedIds(new Set());
+        }
+        await queryClient.invalidateQueries({ queryKey: ["gaia"] });
+        toast({
+          title: t(mode === "move" ? "gaia.moveToNote.movedToast" : "gaia.moveToNote.copiedToast"),
+        });
+      } catch (err) {
+        toast({ variant: "destructive", title: gaiaErrorMessage(err) });
+      } finally {
+        setMoveDialog({ open: false, mode: "move", blockIds: [] });
+      }
+    },
+    [moveDialog, queryClient, toast, t],
+  );
+
+  // ── Module 1 : sélection multiple (E20) ────────────────────────────────
+  const bulkDelete = React.useCallback(() => {
+    applyDraft((prev) => {
+      let blocks = prev.blocks;
+      for (const id of selectedIds) blocks = removeBlockDeep(blocks, id).blocks;
+      if (countBlocksDeep(blocks) === 0) {
+        blocks = [{ id: newBlockId(), type: "paragraph", text: "" }];
+      }
+      return { ...prev, blocks };
+    });
+    setSelectedIds(new Set());
+  }, [applyDraft, selectedIds]);
+
+  const bulkDuplicate = React.useCallback(() => {
+    applyDraft((prev) => {
+      let blocks = prev.blocks;
+      const ordered = flattenBlocks(prev.blocks).filter((b) => selectedIds.has(b.id));
+      for (const b of ordered) {
+        const loc = findBlockLocation(blocks, b.id);
+        if (!loc) continue;
+        blocks = insertIntoList(blocks, loc.listId, loc.index + 1, cloneBlockDeep(b));
+      }
+      return { ...prev, blocks };
+    });
+    setSelectedIds(new Set());
+  }, [applyDraft, selectedIds]);
+
+  const bulkTurnInto = React.useCallback(
+    (type: GaiaBlock["type"]) => {
+      applyDraft((prev) => {
+        let blocks = prev.blocks;
+        for (const id of selectedIds) {
+          const block = findBlock(blocks, id);
+          if (!block || !TEXT_BLOCK_TYPES.includes(block.type)) continue;
+          blocks = updateBlockDeep(blocks, id, {
+            type,
+            checked: type === "todo" ? false : undefined,
+          });
+        }
+        return { ...prev, blocks };
+      });
+      setSelectedIds(new Set());
+    },
+    [applyDraft, selectedIds],
+  );
+
+  const bulkCopy = React.useCallback(() => {
+    const d = draftRef.current;
+    if (!d) return;
+    const ordered = flattenBlocks(d.blocks).filter((b) => selectedIds.has(b.id));
+    const md = blocksToMarkdownLines(ordered, tr).join("\n");
+    void navigator.clipboard
+      .writeText(md)
+      .then(() => toast({ title: t("gaia.multiselect.copiedToast") }));
+  }, [selectedIds, tr, toast]);
+
+  const bulkMoveToNote = React.useCallback(() => {
+    const d = draftRef.current;
+    if (!d) return;
+    const ordered = flattenBlocks(d.blocks)
+      .filter((b) => selectedIds.has(b.id))
+      .map((b) => b.id);
+    if (ordered.length > 0) setMoveDialog({ open: true, mode: "move", blockIds: ordered });
+  }, [selectedIds]);
+
+  const handleDailyGoalChange = React.useCallback(
+    (goal: number) => {
+      if (dailyGoalTimerRef.current !== null) {
+        window.clearTimeout(dailyGoalTimerRef.current);
+      }
+      dailyGoalTimerRef.current = window.setTimeout(() => {
+        void updateSettings.mutateAsync({ dailyWordGoal: goal });
+      }, 800);
+    },
+    [updateSettings],
+  );
+
+  const saveCustomCommands = React.useCallback((commands: GaiaCustomSlashCommand[]) => {
+    setCustomCommands(commands);
+    saveCustomSlashCommands(commands);
+  }, []);
 
   const folders = foldersQuery.data?.folders ?? [];
   const allTags = tagsQuery.data?.tags ?? [];
-  const wordCount = draft ? countWords(draft.blocks) : 0;
+  const stats = React.useMemo(
+    () =>
+      draft
+        ? editorStats(draft.blocks)
+        : { words: 0, chars: 0, paragraphs: 0, headings: 0, todosOpen: 0, todosTotal: 0, readingMinutes: 1 },
+    [draft],
+  );
+  const headings = React.useMemo(
+    () => (draft ? extractHeadings(draft.blocks) : []),
+    [draft],
+  );
+  const dailyGoal = settingsQuery.data?.dailyWordGoal ?? 0;
+  const wordsToday = todayQuery.data?.wordsToday ?? 0;
+  const canFormat = React.useMemo(() => {
+    if (!draft || !editingId) return false;
+    const block = findBlock(draft.blocks, editingId);
+    return !!block && TEXT_BLOCK_TYPES.includes(block.type);
+  }, [draft, editingId]);
+
+  const rowCtx: BlockRowContext = React.useMemo(
+    () => ({
+      ops,
+      t: tr,
+      editingId,
+      onEditStart: (id) => focusBlock(id, "end"),
+      selectedIds,
+      selectionMode: selectedIds.size > 0,
+      onToggleSelect: (id) =>
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        }),
+      openCommentsId,
+      onToggleComments: (id) => setOpenCommentsId((prev) => (prev === id ? null : id)),
+      authorName,
+      headings,
+      dragState,
+      onDragStart: (id) => setDragState({ dragId: id, overId: null, overListId: null, position: null }),
+      onDragOver: (e, id, listId) => {
+        e.preventDefault();
+        if (id === "") {
+          setDragState((prev) =>
+            prev.overId === null && prev.overListId === listId
+              ? prev
+              : { ...prev, overId: null, overListId: listId, position: null },
+          );
+          return;
+        }
+        const rect = e.currentTarget.getBoundingClientRect();
+        const position = e.clientY < rect.top + rect.height / 2 ? "above" : "below";
+        setDragState((prev) =>
+          prev.overId === id && prev.position === position && prev.overListId === listId
+            ? prev
+            : { ...prev, overId: id, overListId: listId, position },
+        );
+      },
+      onDragEnd: () => setDragState({ dragId: null, overId: null, overListId: null, position: null }),
+      onDrop: (id, listId) => {
+        if (dragState.dragId) {
+          const loc = findBlockLocation(draftRef.current?.blocks ?? [], id);
+          if (loc) {
+            ops.moveBlockToList(
+              dragState.dragId,
+              loc.listId,
+              loc.index + (dragState.position === "below" ? 1 : 0),
+            );
+          }
+        }
+        setDragState({ dragId: null, overId: null, overListId: null, position: null });
+      },
+      onDropInto: (listId, index) => {
+        if (dragState.dragId) ops.moveBlockToList(dragState.dragId, listId, index);
+        setDragState({ dragId: null, overId: null, overListId: null, position: null });
+      },
+    }),
+    [
+      ops,
+      tr,
+      editingId,
+      selectedIds,
+      openCommentsId,
+      authorName,
+      headings,
+      dragState,
+      focusBlock,
+    ],
+  );
 
   const handleKeyDownCapture = (e: React.KeyboardEvent) => {
     if (slash) {
@@ -675,24 +1409,24 @@ export function GaiaEditor({
       void flushSave();
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "b" || e.key.toLowerCase() === "i")) {
+    if ((e.ctrlKey || e.metaKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) {
       const target = e.target as HTMLElement | null;
       if (target && target.tagName === "TEXTAREA") {
         e.preventDefault();
-        const ta = target as HTMLTextAreaElement;
-        const marker = e.key.toLowerCase() === "b" ? "**" : "*";
-        const start = ta.selectionStart ?? 0;
-        const end = ta.selectionEnd ?? 0;
-        const value = ta.value;
-        const next = `${value.slice(0, start)}${marker}${value.slice(start, end)}${marker}${value.slice(end)}`;
-        // Native setter so React's uncontrolled textarea picks up the change.
-        const setter = Object.getOwnPropertyDescriptor(
-          window.HTMLTextAreaElement.prototype,
-          "value",
-        )?.set;
-        setter?.call(ta, next);
-        ta.setSelectionRange(end + marker.length, end + marker.length);
-        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        const kind = e.key.toLowerCase() === "b" ? "bold" : e.key.toLowerCase() === "i" ? "italic" : "underline";
+        applyFormat(kind);
+      }
+      return;
+    }
+    if (e.key === "Escape") {
+      if (selectedIds.size > 0) {
+        e.preventDefault();
+        setSelectedIds(new Set());
+        return;
+      }
+      if (editingId) {
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        setEditingId(null);
       }
     }
   };
@@ -759,7 +1493,19 @@ export function GaiaEditor({
       onKeyDownCapture={handleKeyDownCapture}
       className="w-full"
     >
-      <div className="rounded-xl border bg-card">
+      <div className="flex items-start gap-4">
+        {outlineOpen && !focusMode ? (
+          <OutlinePanel headings={headings} onNavigate={ops.navigateToBlock} onClose={() => setOutlineOpen(false)} t={tr} />
+        ) : null}
+        <div className="min-w-0 flex-1">
+      <div className="overflow-hidden rounded-xl border bg-card">
+        <CoverBar
+          coverStored={draft.cover}
+          onCoverChange={(cover: GaiaCover | null) =>
+            applyDraft((d) => ({ ...d, cover: cover ? JSON.stringify(cover) : null }))
+          }
+          t={tr}
+        />
         <div className="flex items-start gap-2 border-b px-4 pb-3 pt-4 sm:px-6">
           <IconPicker
             icon={draft.icon}
@@ -774,8 +1520,8 @@ export function GaiaEditor({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  const first = draft.blocks.find((b) =>
-                    ["paragraph", "h1", "h2", "h3", "bullet", "numbered", "todo", "quote", "callout", "code"].includes(b.type),
+                  const first = flattenBlocks(draft.blocks).find((b) =>
+                    TEXT_BLOCK_TYPES.includes(b.type),
                   );
                   if (first) ops.focusBlock(first.id, "end");
                 }
@@ -803,8 +1549,16 @@ export function GaiaEditor({
                 ) : null}
               </span>
               <span aria-hidden="true">·</span>
-              <span data-testid="gaia-word-count" className="font-mono tabular-nums">
-                {wordCount} {wordCount === 1 ? t("gaia.shared.wordOne") : t("gaia.shared.wordMany")}
+              <span data-testid="gaia-word-count">
+                <StatsPopover
+                  stats={stats}
+                  wordGoal={draft.wordGoal}
+                  onWordGoalChange={(goal) => applyDraft((d) => ({ ...d, wordGoal: goal }))}
+                  dailyGoal={dailyGoal}
+                  wordsToday={wordsToday}
+                  onDailyGoalChange={handleDailyGoalChange}
+                  t={tr}
+                />
               </span>
               <span aria-hidden="true">·</span>
               <span>
@@ -813,6 +1567,16 @@ export function GaiaEditor({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              data-testid="gaia-outline-toggle"
+              aria-label={t("gaia.outline.title")}
+              title={t("gaia.outline.title")}
+              onClick={() => setOutlineOpen((v) => !v)}
+              className={`rounded-md p-2 hover:bg-muted ${outlineOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+            >
+              <ListTree className="size-4" aria-hidden="true" />
+            </button>
             <button
               type="button"
               data-testid="gaia-favorite-toggle"
@@ -1064,37 +1828,17 @@ export function GaiaEditor({
           </span>
         </div>
 
+        <div className="border-b px-4 py-2 sm:px-6">
+          <FormatToolbar onFormat={applyFormat} disabled={!canFormat} t={tr} />
+        </div>
+
         <div data-testid="gaia-blocks" className="max-w-prose space-y-1 px-4 py-4 sm:px-6">
-          {draft.blocks.map((block, i) => (
-            <GaiaBlockRow
-              key={block.id}
-              block={block}
-              index={i}
-              total={draft.blocks.length}
-              numberedIndex={numberedIndexFor(draft.blocks, i)}
-              ops={ops}
-              dragState={dragState}
-              onDragStart={(id) => setDragState({ dragId: id, overId: null, position: null })}
-              onDragOver={(e, id) => {
-                e.preventDefault();
-                const rect = e.currentTarget.getBoundingClientRect();
-                const position = e.clientY < rect.top + rect.height / 2 ? "above" : "below";
-                setDragState((prev) =>
-                  prev.overId === id && prev.position === position
-                    ? prev
-                    : { ...prev, overId: id, position },
-                );
-              }}
-              onDragEnd={() => setDragState({ dragId: null, overId: null, position: null })}
-              onDrop={(id) => {
-                if (dragState.dragId) {
-                  ops.reorder(dragState.dragId, id, dragState.position ?? "below");
-                }
-                setDragState({ dragId: null, overId: null, position: null });
-              }}
-              t={tr}
-            />
-          ))}
+          <BlockList
+            listId={ROOT_LIST_ID}
+            blocks={draft.blocks}
+            depth={0}
+            ctx={rowCtx}
+          />
           <button
             type="button"
             onClick={addBlock}
@@ -1105,6 +1849,21 @@ export function GaiaEditor({
           </button>
         </div>
       </div>
+        </div>
+      </div>
+
+      {selectedIds.size > 0 ? (
+        <MultiSelectBar
+          count={selectedIds.size}
+          onDelete={bulkDelete}
+          onDuplicate={bulkDuplicate}
+          onTurnInto={bulkTurnInto}
+          onMoveToNote={bulkMoveToNote}
+          onCopy={bulkCopy}
+          onClear={() => setSelectedIds(new Set())}
+          t={tr}
+        />
+      ) : null}
 
       {slash ? (
         <GaiaSlashMenu
@@ -1114,9 +1873,29 @@ export function GaiaEditor({
           onActiveChange={setSlashActive}
           onSelect={applySlashItem}
           onClose={() => setSlash(null)}
+          onManageCustom={() => {
+            setSlash(null);
+            setCustomSlashOpen(true);
+          }}
           t={tr}
         />
       ) : null}
+
+      <MoveToNoteDialog
+        open={moveDialog.open}
+        onOpenChange={(open) => setMoveDialog((prev) => ({ ...prev, open }))}
+        excludeNoteId={noteId}
+        onPick={executeMoveDialog}
+        title={t(moveDialog.mode === "move" ? "gaia.moveToNote.title" : "gaia.moveToNote.copyTitle")}
+        t={tr}
+      />
+      <CustomSlashDialog
+        open={customSlashOpen}
+        onOpenChange={setCustomSlashOpen}
+        commands={customCommands}
+        onSave={saveCustomCommands}
+        t={tr}
+      />
 
       <RefPickerDialog
         open={refPicker.open}

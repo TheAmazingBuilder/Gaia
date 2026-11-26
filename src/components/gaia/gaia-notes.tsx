@@ -49,10 +49,12 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
+  GAIA_COVER_GRADIENTS,
   FolderChip,
   GaiaEmptyState,
   gaiaErrorMessage,
   gaiaRelativeTime,
+  parseGaiaCover,
   MasteryBadge,
   TagChip,
   useDuplicateGaiaNote,
@@ -452,8 +454,21 @@ export function NotesBrowser({
               onKeyDown={(e) => {
                 if (e.key === "Enter") onOpenNote(note.id);
               }}
-              className="group cursor-pointer rounded-lg border bg-card p-4 hover:border-brand-cyan/40 hover:bg-muted/30"
+              className="group cursor-pointer overflow-hidden rounded-lg border bg-card p-4 hover:border-brand-cyan/40 hover:bg-muted/30"
             >
+              {(() => {
+                const cover = parseGaiaCover(note.cover);
+                if (!cover) return null;
+                const gradient = GAIA_COVER_GRADIENTS.find((g) => g.id === cover.value);
+                return cover.kind === "image" ? (
+                  <img src={cover.value} alt="" className="-m-4 mb-3 h-20 w-[calc(100%+2rem)] object-cover" />
+                ) : (
+                  <div
+                    className="-m-4 mb-3 h-20 w-[calc(100%+2rem)]"
+                    style={{ background: gradient?.css ?? GAIA_COVER_GRADIENTS[0].css }}
+                  />
+                );
+              })()}
               <div className="flex items-start gap-2">
                 <span className="text-lg leading-none" aria-hidden="true">
                   {note.icon ?? "📝"}
