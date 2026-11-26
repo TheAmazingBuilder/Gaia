@@ -1,3 +1,5 @@
+![Gaïa — Your personal knowledge workspace](public/brand/gaia-banner.png)
+
 # Gaïa — Personal knowledge workspace
 
 Gaïa is a standalone notes workspace: a mini-Notion for writing notes, ideas,
