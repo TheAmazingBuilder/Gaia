@@ -80,7 +80,7 @@ function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
     .filter((name): name is string => name !== null);
 }
 
-async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
+export async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
   if (noteIds.length === 0) return new Map();
   const rows = await db.note.findMany({
     where: { id: { in: noteIds } },
