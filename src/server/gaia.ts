@@ -118,15 +118,10 @@ import {
 import { builtInTemplates, findBuiltInTemplate, type GaiaBuiltInTemplate } from "@/lib/gaia/templates";
 import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib/gaia/refs";
 import {
-  applyReview,
   isMasteryLevel,
   isTimePeriod,
-  MASTERY_VALUE,
-  moveToMastery,
-  moveToPeriod,
   periodOf,
   type MasteryLevel,
-  type ReviewQuality,
   type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
 import {
@@ -1181,111 +1176,51 @@ export async function duplicateNote(
 
 /* ── Phase 1 — Memory : révision espacée + statistiques ────────────────── */
 
-const reviewInputSchema = z.object({
-  quality: z.number().int().min(0).max(3),
-});
-
-const masteryInputSchema = z.object({
-  mastery: z.string().refine((v): v is MasteryLevel => isMasteryLevel(v), {
-    message: "Invalid mastery level.",
-  }),
-});
-
-/**
- * Grade one review (Forgot / Hard / Good / Easy → quality 0..3).
- * Simplified SM-2 (see src/lib/gaia/spaced-repetition.ts). A review is
- * not a content edit: no version snapshot, blocks untouched.
- */
 export async function reviewNote(
   userId: string,
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(reviewInputSchema, input);
-  const quality = parsed.quality as ReviewQuality;
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const now = new Date();
-  const result = applyReview(
-    { easeFactor: note.easeFactor, intervalDays: note.intervalDays },
-    quality,
-    now,
-  );
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
-      mastery: result.mastery,
-      intervalDays: result.intervalDays,
-      easeFactor: result.easeFactor,
-      nextReviewAt: result.nextReviewAt,
-      lastReviewedAt: now,
-      reviewCount: note.reviewCount + 1,
-      updatedAt: now,
+  return reviewNoteCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
     },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, updated, folders, tags);
 }
 
-/**
- * Move a note to a mastery column (Kanban drag & drop or "Move to…"
- * menu). A manual move reclassifies the note — it is not a review:
- * the ease factor and review count are untouched, only the mastery,
- * the interval and the next review date change.
- */
+/** Manual mastery move is a reclassification, not a spaced-repetition review. */
 export async function moveNoteToMastery(
   userId: string,
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(masteryInputSchema, input);
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const result = moveToMastery(parsed.mastery, new Date());
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
-      mastery: result.mastery,
-      intervalDays: result.intervalDays,
-      nextReviewAt: result.nextReviewAt,
-      updatedAt: new Date(),
+  return moveNoteToMasteryCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
     },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, updated, folders, tags);
 }
 
-const scheduleInputSchema = z.object({
-  period: z.string().refine((v): v is TimePeriod => isTimePeriod(v), {
-    message: "Invalid time period.",
-  }),
-});
-
-/**
- * Phase 2 — Temporal Kanban: reschedule a note into a time column
- * (drag & drop or "Move to…" menu). Only the next review date and the
- * interval change: mastery, ease factor and review count are untouched —
- * a manual move is a reclassification, not a review.
- */
+/** Reschedule a note without changing mastery, ease factor or review count. */
 export async function scheduleNote(
   userId: string,
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(scheduleInputSchema, input);
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const result = moveToPeriod(parsed.period, new Date());
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
-      intervalDays: result.intervalDays,
-      nextReviewAt: result.nextReviewAt,
-      updatedAt: new Date(),
+  return scheduleNoteCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
     },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, updated, folders, tags);
 }
 
 /* ── Phase 2 — Knowledge graph ─────────────────────────────────────────── */
