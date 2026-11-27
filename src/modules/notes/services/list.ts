@@ -8,7 +8,6 @@ import {
   parseJsonStringArray,
   textOfBlocks,
   gaiaRefKindSchema,
-  type GaiaBlock,
 } from "@/lib/gaia/content";
 import {
   buildTree,
@@ -166,7 +165,7 @@ export async function listNotesQuery(
           mastery: note.mastery,
           favorite: note.favorite,
           title: note.title,
-          text: (textOfBlocks(parseJsonBlocks(note.blocks))),
+          text: textOfBlocks(parseJsonBlocks(note.blocks)),
           properties: deps.parseJsonProperties(note.properties),
         },
         criteria,
@@ -241,7 +240,7 @@ export async function listNotesQuery(
       const tagIds = parseJsonStringArray(note.tagIds);
       return (
         note.title.toLowerCase().includes(q) ||
-        textOfBlocks(parseJsonBlocks(note.blocks)).toLowerCase().includes(q) ||
+        textOfBlocks(blocks).toLowerCase().includes(q) ||
         tagNamesOf(tagIds, tags).some((name) => name.toLowerCase().includes(q)) ||
         (folderNameOf(note.folderId, folders) ?? "").toLowerCase().includes(q)
       );
