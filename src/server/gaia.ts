@@ -96,6 +96,13 @@ import {
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { getNoteQuery } from "@/modules/notes/services/details";
+import {
+  createFolderCommand,
+  deleteFolderCommand,
+  listFoldersQuery,
+  updateFolderCommand,
+  type GaiaFolderInput,
+} from "@/modules/notes/services/folders";
 import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/services/list";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
@@ -1306,39 +1313,16 @@ export async function restoreVersion(
 /* ── Dossiers ────────────────────────────────────────────────────────── */
 
 export async function listFolders(userId: string): Promise<{ folders: GaiaFolderDTO[] }> {
-  const [folders, notes] = await Promise.all([
-    loadFolders(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-  return {
-    folders: folders.map((folder) => ({
-      ...folder,
-      noteCount: notes.filter((n) => n.folderId === folder.id).length,
-    })),
-  };
+  return listFoldersQuery(userId);
 }
 
 export async function createFolder(userId: string, input: unknown): Promise<GaiaFolderDTO> {
   const parsed = parseOrThrow(folderInputSchema, input);
-  const name = parsed.name.trim();
-  if (name === "") {
-    throw validationError("The folder name is required.", [
-      { path: "name", message: "The folder name is required." },
-    ]);
-  }
-  const folders = await loadFolders(userId);
-  if (folders.some((f) => nameKeyOf(f.name) === nameKeyOf(name))) {
-    throw conflictError("FOLDER_EXISTS", "A folder with this name already exists.");
-  }
-  // Module 2 (K05) : dossier imbriqué — le parent doit exister.
-  let parentId: string | null = null;
-  if (parsed.parentId !== undefined && parsed.parentId !== null) {
-    const parent = folders.find((f) => f.id === parsed.parentId);
-    if (!parent) throw FOLDER_NOT_FOUND();
-    parentId = parent.id;
-  }
-  const folder = await db.noteFolder.create({ data: { userId, name, parentId } });
-  return { ...folder, noteCount: 0 };
+  return createFolderCommand(userId, parsed, {
+    folderNotFound: FOLDER_NOT_FOUND,
+    validationError,
+    conflictError,
+  });
 }
 
 export async function updateFolder(
@@ -1347,63 +1331,16 @@ export async function updateFolder(
   input: unknown,
 ): Promise<GaiaFolderDTO> {
   const parsed = parseOrThrow(folderInputSchema, input);
-  const name = parsed.name.trim();
-  if (name === "") {
-    throw validationError("The folder name is required.", [
-      { path: "name", message: "The folder name is required." },
-    ]);
-  }
-  const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
-  if (!folder) throw FOLDER_NOT_FOUND();
-  const folders = await loadFolders(userId);
-  if (
-    folders.some((f) => f.id !== folder.id && nameKeyOf(f.name) === nameKeyOf(name))
-  ) {
-    throw conflictError("FOLDER_EXISTS", "A folder with this name already exists.");
-  }
-  // Module 2 (K05) : déplacer le dossier — jamais sous lui-même ni sous
-  // l'un de ses descendants (cycle impossible).
-  let parentId: string | null | undefined;
-  if (parsed.parentId !== undefined) {
-    if (parsed.parentId === null) {
-      parentId = null;
-    } else {
-      const parent = folders.find((f) => f.id === parsed.parentId);
-      if (!parent) throw FOLDER_NOT_FOUND();
-      if (
-        parent.id === folder.id ||
-        isDescendantOf(folders, parent.id, folder.id)
-      ) {
-        throw validationError("A folder cannot be moved under itself or one of its children.");
-      }
-      parentId = parent.id;
-    }
-  }
-  const updated = await db.noteFolder.update({
-    where: { id: folder.id },
-    data: { name, ...(parentId !== undefined ? { parentId } : {}) },
+  return updateFolderCommand(userId, folderId, parsed, {
+    folderNotFound: FOLDER_NOT_FOUND,
+    validationError,
+    conflictError,
+    isDescendantOf,
   });
-  const noteCount = await db.note.count({
-    where: { userId, folderId: folder.id, deletedAt: null },
-  });
-  return { ...updated, noteCount };
 }
 
 export async function deleteFolder(userId: string, folderId: string): Promise<{ ok: true }> {
-  const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
-  if (!folder) throw FOLDER_NOT_FOUND();
-  // Module 2 (K05) : les sous-dossiers remontent au parent du dossier
-  // supprimé (ou à la racine) ; les notes du dossier passent à la racine.
-  await db.noteFolder.updateMany({
-    where: { userId, parentId: folder.id },
-    data: { parentId: folder.parentId ?? null },
-  });
-  await db.note.updateMany({
-    where: { userId, folderId: folder.id },
-    data: { folderId: null },
-  });
-  await db.noteFolder.delete({ where: { id: folder.id } });
-  return { ok: true };
+  return deleteFolderCommand(userId, folderId, FOLDER_NOT_FOUND);
 }
 
 /* ── Tags ────────────────────────────────────────────────────────────── */
