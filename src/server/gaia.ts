@@ -94,6 +94,7 @@ import {
   restoreNoteCommand,
   trashNoteCommand,
 } from "@/modules/notes/services/lifecycle";
+import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import {
   countOpenTodos,
   countWords,
@@ -1024,63 +1025,23 @@ export async function createNote(
   userId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(noteCreateInputSchema, input);
-
-  let folderId: string | null = parsed.folderId ?? null;
-  if (folderId !== null) {
-    const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
-    if (!folder) throw FOLDER_NOT_FOUND();
-  }
-
-  let template: GaiaBuiltInTemplate | GaiaTemplateDTO | null = null;
-  if (parsed.templateId !== undefined) {
-    template =
-      findBuiltInTemplate(parsed.templateId) ??
-      (await findUserTemplate(userId, parsed.templateId));
-  }
-
-  let blocks: GaiaBlock[];
-  if (parsed.blocks !== undefined) {
-    blocks = normalizeBlocks(parsed.blocks);
-  } else if (template) {
-    blocks = cloneBlocksWithNewIds(template.blocks);
-  } else {
-    blocks = [emptyParagraphBlock()];
-  }
-  assertSafeImageSources(blocks);
-
-  const now = new Date();
-  const note = await db.note.create({
-    data: {
-      userId,
-      title: parsed.title?.trim() ?? "",
-      icon: template?.icon ?? "📝",
-      folderId,
-      tagIds: "[]",
-      favorite: false,
-      templateId: template?.id ?? null,
-      blocks: JSON.stringify(blocks),
-      cover: parsed.cover ?? null,
-      wordGoal: parsed.wordGoal ?? null,
-      properties: parsed.properties
-        ? JSON.stringify(normalizeProperties(parsed.properties))
-        : "[]",
-      createdAt: now,
-      updatedAt: now,
-      lastViewedAt: now,
-      deletedAt: null,
-      // Phase 1 — Memory: a note you just wrote is not mastered yet —
-      // it starts "fragile" and is due for its first review right away.
-      mastery: "fragile",
-      lastReviewedAt: null,
-      nextReviewAt: now,
-      reviewCount: 0,
-      easeFactor: 2.5,
-      intervalDays: 0,
+  return createNoteCommand(userId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    folderNotFound: FOLDER_NOT_FOUND,
+    parseBlocks: normalizeBlocks,
+    cloneBlocksWithNewIds,
+    emptyParagraphBlock,
+    assertSafeImageSources,
+    normalizeProperties,
+    findTemplate: async (ownerId, templateId) =>
+      findBuiltInTemplate(templateId) ?? findUserTemplate(ownerId, templateId),
+    findActiveNote,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
     },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, note, folders, tags);
 }
 
 export async function updateNote(
@@ -1293,39 +1254,23 @@ export async function duplicateNote(
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(noteDuplicateInputSchema, input ?? {});
-  const source = await findActiveNote(userId, noteId);
-  if (!source) throw NOTE_NOT_FOUND();
-  const title =
-    parsed.title?.trim() ??
-    (source.title === "" ? "Untitled note (copy)" : `${source.title} (copie)`);
-  const now = new Date();
-  const copy = await db.note.create({
-    data: {
-      userId,
-      title,
-      icon: source.icon,
-      folderId: source.folderId,
-      tagIds: source.tagIds,
-      favorite: false,
-      templateId: source.templateId,
-      blocks: JSON.stringify(cloneBlocksWithNewIds(parseJsonBlocks(source.blocks))),
-      createdAt: now,
-      updatedAt: now,
-      lastViewedAt: now,
-      deletedAt: null,
-      // Phase 1 — Memory: a copy is a fresh note to learn — its memory
-      // state restarts, it does not inherit the source's mastery.
-      mastery: "fragile",
-      lastReviewedAt: null,
-      nextReviewAt: now,
-      reviewCount: 0,
-      easeFactor: 2.5,
-      intervalDays: 0,
+  return duplicateNoteCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    folderNotFound: FOLDER_NOT_FOUND,
+    parseBlocks: parseJsonBlocks,
+    cloneBlocksWithNewIds,
+    emptyParagraphBlock,
+    assertSafeImageSources,
+    normalizeProperties,
+    findTemplate: async (ownerId, templateId) =>
+      findBuiltInTemplate(templateId) ?? findUserTemplate(ownerId, templateId),
+    findActiveNote,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
     },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, copy, folders, tags);
 }
 
 /* ── Phase 1 — Memory : révision espacée + statistiques ────────────────── */
