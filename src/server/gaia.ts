@@ -1352,7 +1352,7 @@ export async function deleteFolder(userId: string, folderId: string): Promise<{ 
 /* ── Tags ────────────────────────────────────────────────────────────── */
 
 export async function listTags(userId: string): Promise<{ tags: GaiaTagDTO[] }> {
-  return listTagsQuery(userId);
+  return listTagsQuery(userId, parseJsonStringArray);
 }
 
 export async function createTag(userId: string, input: unknown): Promise<GaiaTagDTO> {
@@ -1361,6 +1361,7 @@ export async function createTag(userId: string, input: unknown): Promise<GaiaTag
     notFound: (code, message) => notFound(code, message),
     validationError,
     conflictError,
+    parseJsonStringArray,
   });
 }
 
@@ -1375,6 +1376,7 @@ export async function updateTag(
     validationError,
     conflictError,
     isDescendantOf,
+    parseJsonStringArray,
   });
 }
 
