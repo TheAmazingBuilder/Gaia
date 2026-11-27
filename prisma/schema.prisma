@@ -55,6 +55,9 @@ model User {
   gaiaCollections SmartCollection[]
   gaiaCanvases    KnowledgeCanvas[]
   gaiaInbox       InboxItem[]
+  // Module 3 — File & Document Management.
+  gaiaFiles           GaiaFile[]
+  gaiaFileAnnotations FileAnnotation[]
 
   @@map("users")
 }
@@ -118,6 +121,8 @@ model Note {
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   folder   NoteFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
   versions NoteVersion[]
+  // Module 3 — fichiers attachés à cette note (F06/F15).
+  files    NoteFile[]
 
   @@index([userId])
   @@index([userId, folderId])
@@ -139,6 +144,8 @@ model NoteFolder {
   parent   NoteFolder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: SetNull)
   children NoteFolder[] @relation("FolderChildren")
   notes    Note[]
+  // Module 3 — fichiers rangés dans ce dossier (F03).
+  files    GaiaFile[]
 
   @@index([userId])
   @@index([userId, parentId])
@@ -237,6 +244,97 @@ model InboxItem {
   @@index([userId])
   @@index([userId, doneAt])
   @@map("gaia_inbox_items")
+}
+
+/// Module 3 (F01–F15) — fichier stocké dans Supabase Storage (bucket
+/// privé `gaia-files`, chemin `<userId>/<fileId>/v<version>/<nom>`).
+/// Le binaire vit dans Storage ; ici ne vivent que les métadonnées.
+/// `ocrText` : texte extrait (calque texte PDF ou OCR) — sert à la
+/// recherche (F12). `folderId` réutilise les dossiers de notes (F03).
+model GaiaFile {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  name        String
+  mimeType    String   @map("mime_type")
+  size        Int
+  /// Chemin Storage de la version courante.
+  storagePath String   @map("storage_path")
+  folderId    String?  @map("folder_id")
+  /// Texte extrait (PDF text layer ou OCR), "" = aucun.
+  ocrText     String   @default("") @map("ocr_text")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder      NoteFolder?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  versions    FileVersion[]
+  annotations FileAnnotation[]
+  notes       NoteFile[]
+
+  @@index([userId])
+  @@index([userId, folderId])
+  @@index([userId, mimeType])
+  @@map("gaia_files")
+}
+
+/// Module 3 (F13) — version d'un fichier : chaque remplacement crée une
+/// nouvelle version ; les anciens binaires sont conservés dans Storage,
+/// la restauration crée une version qui pointe vers l'ancien binaire.
+model FileVersion {
+  id          String   @id @default(cuid())
+  fileId      String   @map("file_id")
+  version     Int
+  storagePath String   @map("storage_path")
+  size        Int
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  file GaiaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, version])
+  @@index([fileId, version])
+  @@map("gaia_file_versions")
+}
+
+/// Module 3 (F05) — annotation sur un document (PDF) : punaise de note ou
+/// surlignage. `page` est 1-based ; x/y/width/height sont relatifs (0–1)
+/// à la page, pour survivre au zoom.
+model FileAnnotation {
+  id        String   @id @default(cuid())
+  fileId    String   @map("file_id")
+  userId    String   @map("user_id")
+  page      Int
+  x         Float
+  y         Float
+  width     Float?
+  height    Float?
+  /// "note" (punaise + texte) | "highlight" (rectangle surligné).
+  type      String   @default("note")
+  text      String   @default("")
+  color     String   @default("#FF6B5B")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  file GaiaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([fileId, page])
+  @@map("gaia_file_annotations")
+}
+
+/// Lien fichier ↔ note (F06 pièces jointes, F15 références multiples).
+/// Un fichier peut être attaché à plusieurs notes ; une note peut porter
+/// plusieurs fichiers. Les blocs `file` de l'éditeur référencent aussi
+/// le fichier par son id, sans passer par cette table.
+model NoteFile {
+  fileId    String   @map("file_id")
+  noteId    String   @map("note_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  file GaiaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  note Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, noteId])
+  @@index([noteId])
+  @@map("gaia_note_files")
 }
 
 /// Modèle de note créé par l'utilisateur. Les 5 modèles built-in (tpl-...)

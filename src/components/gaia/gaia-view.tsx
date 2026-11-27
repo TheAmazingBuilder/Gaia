@@ -12,6 +12,7 @@ import * as React from "react";
 import {
   ArrowLeft,
   Brain,
+  Files,
   FileText,
   Folder,
   Inbox,
@@ -51,6 +52,7 @@ import { GraphPanel } from "./gaia-graph";
 import { KnowledgePanel } from "./gaia-knowledge";
 import { CanvasPanel } from "./gaia-canvas";
 import { InboxPanel } from "./gaia-inbox";
+import { FilesPanel } from "./gaia-files";
 import { GaiaEditor } from "./gaia-editor";
 
 const TABS: Array<{ id: GaiaTab; icon: typeof LayoutDashboard }> = [
@@ -61,13 +63,14 @@ const TABS: Array<{ id: GaiaTab; icon: typeof LayoutDashboard }> = [
   { id: "knowledge", icon: Waypoints },
   { id: "canvas", icon: LayoutGrid },
   { id: "inbox", icon: Inbox },
+  { id: "files", icon: Files },
   { id: "folders", icon: Folder },
   { id: "favorites", icon: Star },
   { id: "templates", icon: NotebookText },
   { id: "trash", icon: Trash2 },
 ];
 
-const VALID_TABS: GaiaTab[] = ["overview", "notes", "memory", "graph", "knowledge", "canvas", "inbox", "folders", "favorites", "templates", "trash"];
+const VALID_TABS: GaiaTab[] = ["overview", "notes", "memory", "graph", "knowledge", "canvas", "inbox", "files", "folders", "favorites", "templates", "trash"];
 const VALID_VIEWS: GaiaNotesView[] = ["all", "favorites", "trash", "folder", "tag"];
 
 export function GaiaView() {
@@ -318,6 +321,7 @@ export function GaiaView() {
             ) : null}
             {activeTab === "canvas" ? <CanvasPanel onOpenNote={openNote} /> : null}
             {activeTab === "inbox" ? <InboxPanel onOpenNote={openNote} /> : null}
+            {activeTab === "files" ? <FilesPanel onOpenNote={openNote} /> : null}
             {activeTab === "folders" ? (
               <div className="space-y-4">
                 <FoldersPanel

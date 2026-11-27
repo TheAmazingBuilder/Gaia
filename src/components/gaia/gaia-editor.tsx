@@ -95,6 +95,7 @@ import {
 import { stripInlineMarkers } from "@/lib/gaia/inline";
 import { LinksPanel } from "./gaia-links-panel";
 import { PropertiesPanel } from "./gaia-properties";
+import { AttachmentsPanel } from "./gaia-files";
 import {
   childrenListId,
   countBlocksDeep,
@@ -285,6 +286,9 @@ export function blocksToMarkdownLines(blocks: GaiaBlock[], t: GaiaT): string[] {
           break;
         case "embed":
           if (block.text.trim() !== "") lines.push(`${indent}[${block.text}](${block.text})`, "");
+          break;
+        case "file":
+          if (block.fileId) lines.push(`${indent}[file: ${block.fileId}]`, "");
           break;
         case "toc":
           lines.push(`${indent}<!-- table of contents -->`, "");
@@ -1889,6 +1893,8 @@ export function GaiaEditor({
           properties={draft.properties}
           onChange={(properties) => applyDraft((d) => ({ ...d, properties }))}
         />
+
+        <AttachmentsPanel noteId={noteId} t={tr} />
 
         <div data-testid="gaia-blocks" className="max-w-prose space-y-1 px-4 py-4 sm:px-6">
           <BlockList

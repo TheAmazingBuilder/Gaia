@@ -27,8 +27,11 @@ import {
   Info,
   Lightbulb,
   Link2,
+  Loader2,
   MessageSquare,
   MoreVertical,
+  Music,
+  Paperclip,
   ShieldAlert,
   Trash2,
   Upload,
@@ -48,16 +51,20 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   GAIA_REF_META,
+  gaiaFileDownloadUrl,
   gaiaRefLabel,
   InlineMarkdown,
   newBlockId,
   safeGaiaHref,
+  useGaiaFile,
   type GaiaBlock,
   type GaiaBlockType,
   type GaiaCalloutTone,
   type GaiaRefKind,
   type GaiaT,
 } from "./gaia-shared";
+import { formatFileSize } from "@/lib/gaia/files";
+import { FileKindIcon, GaiaFilePicker } from "./gaia-files";
 import {
   CommentsPanel,
   DrawingBlock,
@@ -191,6 +198,7 @@ export function slashItemsFor(
     { cmd: "todo", group: "Lists", type: "todo", label: bt("todo"), desc: desc("todo"), keywords: "task checkbox check" },
     { cmd: "toggle", group: "Lists", type: "toggle", label: bt("toggle"), desc: desc("toggle"), keywords: "collapsible fold accordion nested" },
     { cmd: "image", group: "Media", type: "image", label: bt("image"), desc: desc("image"), keywords: "photo picture upload" },
+    { cmd: "file", group: "Media", type: "file", label: bt("file"), desc: desc("file"), keywords: "attachment document pdf audio video" },
     { cmd: "drawing", group: "Media", type: "drawing", label: bt("drawing"), desc: desc("drawing"), keywords: "sketch canvas draw pen" },
     { cmd: "embed", group: "Media", type: "embed", label: bt("embed"), desc: desc("embed"), keywords: "youtube vimeo video link" },
     { cmd: "columns", group: "Layout", type: "columns", label: bt("columns"), desc: desc("columns"), keywords: "side by side grid two three" },
@@ -734,6 +742,106 @@ function ImageBlock({
           <Trash2 className="size-3.5" aria-hidden="true" />
         </Button>
       </figcaption>
+    </figure>
+  );
+}
+
+// ── File (Module 3 : bloc fichier F06/F09) ─────────────────────────────────
+
+function FileBlock({
+  block,
+  ops,
+  t,
+}: {
+  block: GaiaBlock;
+  ops: GaiaBlockOps;
+  t: GaiaT;
+}) {
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const fileQuery = useGaiaFile(block.fileId ?? null);
+  const file = fileQuery.data?.file;
+
+  if (!block.fileId || (!file && !fileQuery.isLoading)) {
+    return (
+      <div data-testid="gaia-file-empty" className="rounded-md border border-dashed bg-muted/40 p-3">
+        <div className="flex items-center gap-2">
+          <Paperclip className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="flex-1 text-sm text-muted-foreground">{t("gaia.blocks.fileEmpty")}</span>
+          <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={() => setPickerOpen(true)}>
+            {t("gaia.blocks.chooseFile")}
+          </Button>
+        </div>
+        <GaiaFilePicker
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          t={t}
+          onSelect={(f) => ops.updateBlock(block.id, { fileId: f.id })}
+        />
+      </div>
+    );
+  }
+
+  if (!file) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden="true" /> {t("gaia.files.loading")}
+      </div>
+    );
+  }
+
+  const url = gaiaFileDownloadUrl(file.id);
+  return (
+    <figure data-testid="gaia-file-block" className="overflow-hidden rounded-md border">
+      {file.kind === "image" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={file.name} className="max-h-96 w-full bg-muted/30 object-contain" />
+      ) : file.kind === "audio" ? (
+        <div className="flex items-center gap-3 bg-muted/30 p-3">
+          <Music className="size-6 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <audio controls src={url} className="w-full" preload="metadata" />
+        </div>
+      ) : file.kind === "video" ? (
+        <div className="bg-black">
+          <video controls src={url} className="max-h-96 w-full" preload="metadata" />
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 bg-muted/30 p-3">
+          <FileKindIcon kind={file.kind} className="size-6 shrink-0 text-muted-foreground" />
+          <a href={url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm font-medium hover:text-brand-cyan">
+            {file.name}
+          </a>
+          <span className="shrink-0 text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
+        </div>
+      )}
+      <figcaption className="flex items-center gap-2 border-t bg-card px-2 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{file.name}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 text-xs"
+          onClick={() => setPickerOpen(true)}
+        >
+          {t("gaia.blocks.changeFile")}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 hover:text-loss"
+          aria-label={t("gaia.blocks.removeFile")}
+          title={t("gaia.blocks.removeFile")}
+          onClick={() => ops.updateBlock(block.id, { fileId: undefined })}
+        >
+          <Trash2 className="size-3.5" aria-hidden="true" />
+        </Button>
+      </figcaption>
+      <GaiaFilePicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        t={t}
+        onSelect={(f) => ops.updateBlock(block.id, { fileId: f.id })}
+      />
     </figure>
   );
 }
@@ -1418,6 +1526,9 @@ export function GaiaBlockRow({
       break;
     case "image":
       body = <ImageBlock block={block} ops={ops} t={t} />;
+      break;
+    case "file":
+      body = <FileBlock block={block} ops={ops} t={t} />;
       break;
     case "ref":
       body = <RefBlock block={block} ops={ops} t={t} />;

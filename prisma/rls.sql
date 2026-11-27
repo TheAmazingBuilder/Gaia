@@ -235,3 +235,100 @@ DROP POLICY IF EXISTS gaia_inbox_items_delete ON gaia_inbox_items;
 CREATE POLICY gaia_inbox_items_delete ON gaia_inbox_items
   FOR DELETE
   USING (user_id = auth.uid()::text);
+
+-- ── Module 3 — File & Document Management (F01–F15) ─────────────────────
+-- gaia_files
+ALTER TABLE gaia_files ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_files_select ON gaia_files;
+CREATE POLICY gaia_files_select ON gaia_files
+  FOR SELECT
+  USING (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_files_insert ON gaia_files;
+CREATE POLICY gaia_files_insert ON gaia_files
+  FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_files_update ON gaia_files;
+CREATE POLICY gaia_files_update ON gaia_files
+  FOR UPDATE
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_files_delete ON gaia_files;
+CREATE POLICY gaia_files_delete ON gaia_files
+  FOR DELETE
+  USING (user_id = auth.uid()::text);
+
+-- gaia_file_versions
+ALTER TABLE gaia_file_versions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_file_versions_select ON gaia_file_versions;
+CREATE POLICY gaia_file_versions_select ON gaia_file_versions
+  FOR SELECT
+  USING (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_file_versions.file_id AND f.user_id = auth.uid()::text));
+
+DROP POLICY IF EXISTS gaia_file_versions_insert ON gaia_file_versions;
+CREATE POLICY gaia_file_versions_insert ON gaia_file_versions
+  FOR INSERT
+  WITH CHECK (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_file_versions.file_id AND f.user_id = auth.uid()::text));
+
+DROP POLICY IF EXISTS gaia_file_versions_update ON gaia_file_versions;
+CREATE POLICY gaia_file_versions_update ON gaia_file_versions
+  FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_file_versions.file_id AND f.user_id = auth.uid()::text))
+  WITH CHECK (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_file_versions.file_id AND f.user_id = auth.uid()::text));
+
+DROP POLICY IF EXISTS gaia_file_versions_delete ON gaia_file_versions;
+CREATE POLICY gaia_file_versions_delete ON gaia_file_versions
+  FOR DELETE
+  USING (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_file_versions.file_id AND f.user_id = auth.uid()::text));
+
+-- gaia_file_annotations
+ALTER TABLE gaia_file_annotations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_file_annotations_select ON gaia_file_annotations;
+CREATE POLICY gaia_file_annotations_select ON gaia_file_annotations
+  FOR SELECT
+  USING (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_file_annotations_insert ON gaia_file_annotations;
+CREATE POLICY gaia_file_annotations_insert ON gaia_file_annotations
+  FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_file_annotations_update ON gaia_file_annotations;
+CREATE POLICY gaia_file_annotations_update ON gaia_file_annotations
+  FOR UPDATE
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_file_annotations_delete ON gaia_file_annotations;
+CREATE POLICY gaia_file_annotations_delete ON gaia_file_annotations
+  FOR DELETE
+  USING (user_id = auth.uid()::text);
+
+-- gaia_note_files (lien fichier ↔ note : scoping via le fichier ou la note)
+ALTER TABLE gaia_note_files ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_note_files_select ON gaia_note_files;
+CREATE POLICY gaia_note_files_select ON gaia_note_files
+  FOR SELECT
+  USING (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_note_files.file_id AND f.user_id = auth.uid()::text));
+
+DROP POLICY IF EXISTS gaia_note_files_insert ON gaia_note_files;
+CREATE POLICY gaia_note_files_insert ON gaia_note_files
+  FOR INSERT
+  WITH CHECK (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_note_files.file_id AND f.user_id = auth.uid()::text));
+
+DROP POLICY IF EXISTS gaia_note_files_update ON gaia_note_files;
+CREATE POLICY gaia_note_files_update ON gaia_note_files
+  FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_note_files.file_id AND f.user_id = auth.uid()::text))
+  WITH CHECK (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_note_files.file_id AND f.user_id = auth.uid()::text));
+
+DROP POLICY IF EXISTS gaia_note_files_delete ON gaia_note_files;
+CREATE POLICY gaia_note_files_delete ON gaia_note_files
+  FOR DELETE
+  USING (EXISTS (SELECT 1 FROM gaia_files f WHERE f.id = gaia_note_files.file_id AND f.user_id = auth.uid()::text));

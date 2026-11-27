@@ -9,6 +9,9 @@
  */
 import { NextResponse } from "next/server";
 import type {
+  FileAnnotation,
+  FileVersion,
+  GaiaFile,
   InboxItem,
   KnowledgeCanvas,
   Note,
@@ -73,6 +76,20 @@ import {
   weekStart,
   type KnowledgeCollectionCriteria,
 } from "@/lib/gaia/knowledge";
+import {
+  fileKindOf,
+  GAIA_MAX_FILE_BYTES,
+  GAIA_STORAGE_QUOTA_BYTES,
+  type GaiaFileKind,
+} from "@/lib/gaia/files";
+import {
+  downloadFromStorage,
+  getStorageClient,
+  isStorageConfigured,
+  removeFromStorage,
+  storagePathFor,
+  uploadToStorage,
+} from "@/server/storage";
 
 /* ── Erreurs ─────────────────────────────────────────────────────────── */
 
@@ -116,6 +133,14 @@ const NOTE_NOT_FOUND = () => notFound("NOTE_NOT_FOUND", "Note not found.");
 const FOLDER_NOT_FOUND = () => notFound("FOLDER_NOT_FOUND", "Folder not found.");
 const TEMPLATE_NOT_FOUND = () => notFound("TEMPLATE_NOT_FOUND", "Template not found.");
 const VERSION_NOT_FOUND = () => notFound("VERSION_NOT_FOUND", "Version not found.");
+const FILE_NOT_FOUND = () => notFound("FILE_NOT_FOUND", "File not found.");
+const STORAGE_NOT_CONFIGURED = () =>
+  new GaiaError(
+    "ServiceUnavailable",
+    "STORAGE_NOT_CONFIGURED",
+    503,
+    "File storage is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to the environment.",
+  );
 
 /**
  * Convertit une GaiaError en réponse HTTP ({ error, code?, message?, issues? }).
@@ -457,6 +482,60 @@ export type GaiaTemplateDTO = {
   blocks: GaiaBlock[];
   builtIn: boolean;
   createdAt: string;
+};
+
+// ── Module 3 — File & Document Management (F01–F15) ──────────────────────
+
+export type GaiaFileDTO = {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: GaiaFileKind;
+  size: number;
+  folderId: string | null;
+  folderName: string | null;
+  /** true si un texte extrait (PDF / OCR) est stocké. */
+  hasText: boolean;
+  versionCount: number;
+  noteCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GaiaFileVersionDTO = {
+  version: number;
+  size: number;
+  createdAt: string;
+  current: boolean;
+};
+
+export type GaiaFileAnnotationDTO = {
+  id: string;
+  fileId: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number | null;
+  height: number | null;
+  type: string;
+  text: string;
+  color: string;
+  createdAt: string;
+};
+
+export type GaiaFileDetailDTO = GaiaFileDTO & {
+  ocrText: string;
+  versions: GaiaFileVersionDTO[];
+  annotations: GaiaFileAnnotationDTO[];
+  notes: Array<{ id: string; title: string; updatedAt: string }>;
+};
+
+export type GaiaStorageUsageDTO = {
+  totalBytes: number;
+  quotaBytes: number;
+  fileCount: number;
+  byKind: Array<{ kind: GaiaFileKind; count: number; bytes: number }>;
+  largest: Array<{ id: string; name: string; size: number; mimeType: string }>;
 };
 
 export type GaiaActivityWeek = { weekStart: string; created: number; edited: number };
@@ -3219,4 +3298,585 @@ export async function getOrCreateWeeklyNote(
     { id: newBlockId(), type: "paragraph", text: "" },
   ];
   return createNote(userId, { title, folderId: folder.id, blocks });
+}
+
+// ── Module 3 — File & Document Management (F01–F15) ─────────────────────
+// Les binaires vivent dans Supabase Storage (bucket privé `gaia-files`) ;
+// ici ne vivent que les métadonnées, toujours scopées par userId.
+
+const fileUpdateInputSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  folderId: z.string().min(1).max(64).nullable().optional(),
+});
+
+const fileTextInputSchema = z.object({
+  text: z.string().max(200_000),
+  source: z.enum(["pdf", "ocr"]).optional(),
+});
+
+const fileAnnotationInputSchema = z.object({
+  page: z.number().int().min(1).max(10_000),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1).nullable().optional(),
+  height: z.number().min(0).max(1).nullable().optional(),
+  type: z.enum(["note", "highlight"]).default("note"),
+  text: z.string().max(2_000).default(""),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#FF6B5B"),
+});
+
+function fileToDTO(
+  row: GaiaFile,
+  folderName: string | null,
+  versionCount: number,
+  noteCount: number,
+): GaiaFileDTO {
+  return {
+    id: row.id,
+    name: row.name,
+    mimeType: row.mimeType,
+    kind: fileKindOf(row.mimeType, row.name),
+    size: row.size,
+    folderId: row.folderId,
+    folderName,
+    hasText: row.ocrText !== "",
+    versionCount,
+    noteCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function fileVersionToDTO(row: FileVersion, currentPath: string): GaiaFileVersionDTO {
+  return {
+    version: row.version,
+    size: row.size,
+    createdAt: row.createdAt.toISOString(),
+    current: row.storagePath === currentPath,
+  };
+}
+
+function fileAnnotationToDTO(row: FileAnnotation): GaiaFileAnnotationDTO {
+  return {
+    id: row.id,
+    fileId: row.fileId,
+    page: row.page,
+    x: row.x,
+    y: row.y,
+    width: row.width,
+    height: row.height,
+    type: row.type,
+    text: row.text,
+    color: row.color,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function kindWhere(kind: GaiaFileKind): Prisma.GaiaFileWhereInput {
+  switch (kind) {
+    case "image":
+      return { mimeType: { startsWith: "image/" } };
+    case "pdf":
+      return { mimeType: "application/pdf" };
+    case "audio":
+      return { mimeType: { startsWith: "audio/" } };
+    case "video":
+      return { mimeType: { startsWith: "video/" } };
+    case "document":
+      return {
+        OR: [
+          { mimeType: { startsWith: "text/" } },
+          { mimeType: { contains: "msword" } },
+          { mimeType: { contains: "officedocument" } },
+          { mimeType: { contains: "opendocument" } },
+          { mimeType: "application/rtf" },
+          { mimeType: "application/json" },
+        ],
+      };
+    case "other":
+      return {
+        NOT: {
+          OR: [
+            { mimeType: { startsWith: "image/" } },
+            { mimeType: "application/pdf" },
+            { mimeType: { startsWith: "audio/" } },
+            { mimeType: { startsWith: "video/" } },
+            { mimeType: { startsWith: "text/" } },
+          ],
+        },
+      };
+  }
+}
+
+export type ListFilesParams = {
+  q?: string;
+  folderId?: string;
+  kind?: GaiaFileKind;
+  sort?: "newest" | "name" | "size";
+};
+
+/** F03/F12 — liste des fichiers : recherche (nom + texte extrait), dossier, type, tri. */
+export async function listFiles(
+  userId: string,
+  params: ListFilesParams = {},
+): Promise<{ files: GaiaFileDTO[]; total: number }> {
+  const q = (params.q ?? "").trim();
+  const where: Prisma.GaiaFileWhereInput = { userId };
+  if (q !== "") {
+    where.OR = [
+      { name: { contains: q, mode: "insensitive" } },
+      { ocrText: { contains: q, mode: "insensitive" } },
+    ];
+  }
+  if (params.folderId !== undefined && params.folderId !== "") {
+    where.folderId = params.folderId;
+  }
+  if (params.kind) {
+    const kindClause = kindWhere(params.kind);
+    where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), kindClause];
+  }
+  const orderBy: Prisma.GaiaFileOrderByWithRelationInput =
+    params.sort === "name"
+      ? { name: "asc" }
+      : params.sort === "size"
+        ? { size: "desc" }
+        : { createdAt: "desc" };
+  const [rows, folders, counts] = await Promise.all([
+    db.gaiaFile.findMany({ where, orderBy, take: 500 }),
+    loadFolders(userId),
+    db.gaiaFile
+      .findMany({ where, select: { id: true } })
+      .then(async (found) => {
+        const ids = found.map((f) => f.id);
+        const [versions, links] = await Promise.all([
+          db.fileVersion.groupBy({ by: ["fileId"], where: { fileId: { in: ids } }, _count: { _all: true } }),
+          db.noteFile.groupBy({ by: ["fileId"], where: { fileId: { in: ids } }, _count: { _all: true } }),
+        ]);
+        return {
+          versions: new Map(versions.map((v) => [v.fileId, v._count._all])),
+          links: new Map(links.map((l) => [l.fileId, l._count._all])),
+        };
+      }),
+  ]);
+  const folderNames = new Map(folders.map((f) => [f.id, f.name]));
+  return {
+    files: rows.map((row) =>
+      fileToDTO(
+        row,
+        row.folderId ? (folderNames.get(row.folderId) ?? null) : null,
+        counts.versions.get(row.id) ?? 0,
+        counts.links.get(row.id) ?? 0,
+      ),
+    ),
+    total: rows.length,
+  };
+}
+
+/** F03 — détail d'un fichier : métadonnées + versions + annotations + notes liées. */
+export async function getFile(
+  userId: string,
+  fileId: string,
+): Promise<{ file: GaiaFileDetailDTO }> {
+  const row = await db.gaiaFile.findFirst({
+    where: { userId, id: fileId },
+    include: {
+      versions: { orderBy: { version: "desc" } },
+      annotations: { orderBy: [{ page: "asc" }, { createdAt: "asc" }] },
+      notes: { include: { note: { select: { id: true, title: true, updatedAt: true } } } },
+    },
+  });
+  if (!row) throw FILE_NOT_FOUND();
+  const folders = await loadFolders(userId);
+  const folderNames = new Map(folders.map((f) => [f.id, f.name]));
+  const dto = fileToDTO(
+    row,
+    row.folderId ? (folderNames.get(row.folderId) ?? null) : null,
+    row.versions.length,
+    row.notes.length,
+  );
+  return {
+    file: {
+      ...dto,
+      ocrText: row.ocrText,
+      versions: row.versions.map((v) => fileVersionToDTO(v, row.storagePath)),
+      annotations: row.annotations.map(fileAnnotationToDTO),
+      notes: row.notes
+        .map((l) => ({ id: l.note.id, title: l.note.title, updatedAt: l.note.updatedAt.toISOString() }))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    },
+  };
+}
+
+/** F01/F02 — upload : binaire → Storage, métadonnées + version 1 en base. */
+export async function createFileRecord(
+  userId: string,
+  input: { name: string; mimeType: string; size: number; folderId?: string | null; buffer: Buffer },
+): Promise<{ file: GaiaFileDTO }> {
+  if (!isStorageConfigured()) throw STORAGE_NOT_CONFIGURED();
+  const client = getStorageClient();
+  if (!client) throw STORAGE_NOT_CONFIGURED();
+  const name = input.name.trim().slice(0, 200);
+  if (name === "") throw validationError("File name is required.");
+  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
+    throw validationError("File size is out of bounds.");
+  }
+  let folderId: string | null = null;
+  if (input.folderId) {
+    const folder = await db.noteFolder.findFirst({ where: { userId, id: input.folderId } });
+    if (!folder) throw FOLDER_NOT_FOUND();
+    folderId = folder.id;
+  }
+  const id = `cm${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const path = storagePathFor(userId, id, 1, name);
+  const uploaded = await uploadToStorage(client, path, input.buffer, input.mimeType);
+  if (!uploaded.ok) {
+    throw new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, uploaded.error ?? "Upload failed.");
+  }
+  try {
+    const row = await db.gaiaFile.create({
+      data: {
+        id,
+        userId,
+        name,
+        mimeType: input.mimeType.slice(0, 200),
+        size: input.size,
+        storagePath: path,
+        folderId,
+        versions: { create: { version: 1, storagePath: path, size: input.size } },
+      },
+    });
+    return { file: fileToDTO(row, folderId ? (await loadFolders(userId)).find((f) => f.id === folderId)?.name ?? null : null, 1, 0) };
+  } catch (error) {
+    await removeFromStorage(client, [path]);
+    throw error;
+  }
+}
+
+/** F01 — renommer / déplacer un fichier (métadonnées uniquement). */
+export async function updateFile(
+  userId: string,
+  fileId: string,
+  input: unknown,
+): Promise<{ file: GaiaFileDTO }> {
+  const parsed = parseOrThrow(fileUpdateInputSchema, input);
+  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  if (!row) throw FILE_NOT_FOUND();
+  let folderId = row.folderId;
+  if (parsed.folderId !== undefined) {
+    if (parsed.folderId === null) {
+      folderId = null;
+    } else {
+      const folder = await db.noteFolder.findFirst({ where: { userId, id: parsed.folderId } });
+      if (!folder) throw FOLDER_NOT_FOUND();
+      folderId = folder.id;
+    }
+  }
+  const updated = await db.gaiaFile.update({
+    where: { id: row.id },
+    data: {
+      ...(parsed.name ? { name: parsed.name } : {}),
+      folderId,
+    },
+  });
+  const folders = await loadFolders(userId);
+  const versionCount = await db.fileVersion.count({ where: { fileId: row.id } });
+  const noteCount = await db.noteFile.count({ where: { fileId: row.id } });
+  return {
+    file: fileToDTO(
+      updated,
+      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
+      versionCount,
+      noteCount,
+    ),
+  };
+}
+
+/** F13 — remplacer le contenu : nouvelle version, l'ancienne est conservée. */
+export async function replaceFile(
+  userId: string,
+  fileId: string,
+  input: { name: string; mimeType: string; size: number; buffer: Buffer },
+): Promise<{ file: GaiaFileDTO }> {
+  if (!isStorageConfigured()) throw STORAGE_NOT_CONFIGURED();
+  const client = getStorageClient();
+  if (!client) throw STORAGE_NOT_CONFIGURED();
+  const row = await db.gaiaFile.findFirst({
+    where: { userId, id: fileId },
+    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  });
+  if (!row) throw FILE_NOT_FOUND();
+  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
+    throw validationError("File size is out of bounds.");
+  }
+  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
+  const name = input.name.trim().slice(0, 200) || row.name;
+  const path = storagePathFor(userId, row.id, nextVersion, name);
+  const uploaded = await uploadToStorage(client, path, input.buffer, input.mimeType);
+  if (!uploaded.ok) {
+    throw new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, uploaded.error ?? "Upload failed.");
+  }
+  const updated = await db.gaiaFile.update({
+    where: { id: row.id },
+    data: {
+      name,
+      mimeType: input.mimeType.slice(0, 200),
+      size: input.size,
+      storagePath: path,
+      ocrText: "",
+      versions: { create: { version: nextVersion, storagePath: path, size: input.size } },
+    },
+  });
+  const folders = await loadFolders(userId);
+  return {
+    file: fileToDTO(
+      updated,
+      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
+      nextVersion,
+      await db.noteFile.count({ where: { fileId: row.id } }),
+    ),
+  };
+}
+
+/** F13 — restaurer une ancienne version : crée une version qui pointe vers l'ancien binaire. */
+export async function restoreFileVersion(
+  userId: string,
+  fileId: string,
+  version: number,
+): Promise<{ file: GaiaFileDTO }> {
+  const row = await db.gaiaFile.findFirst({
+    where: { userId, id: fileId },
+    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  });
+  if (!row) throw FILE_NOT_FOUND();
+  const target = await db.fileVersion.findFirst({ where: { fileId: row.id, version } });
+  if (!target) throw notFound("FILE_VERSION_NOT_FOUND", "File version not found.");
+  if (target.storagePath === row.storagePath) {
+    throw validationError("This version is already the current one.");
+  }
+  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
+  const updated = await db.gaiaFile.update({
+    where: { id: row.id },
+    data: {
+      storagePath: target.storagePath,
+      size: target.size,
+      ocrText: "",
+      versions: { create: { version: nextVersion, storagePath: target.storagePath, size: target.size } },
+    },
+  });
+  const folders = await loadFolders(userId);
+  return {
+    file: fileToDTO(
+      updated,
+      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
+      nextVersion,
+      await db.noteFile.count({ where: { fileId: row.id } }),
+    ),
+  };
+}
+
+/** F01 — supprimer un fichier : base + toutes les versions dans Storage. */
+export async function deleteFile(userId: string, fileId: string): Promise<{ ok: true }> {
+  const row = await db.gaiaFile.findFirst({
+    where: { userId, id: fileId },
+    include: { versions: { select: { storagePath: true } } },
+  });
+  if (!row) throw FILE_NOT_FOUND();
+  await db.gaiaFile.delete({ where: { id: row.id } });
+  const client = getStorageClient();
+  if (client) {
+    await removeFromStorage(
+      client,
+      row.versions.map((v) => v.storagePath),
+    );
+  }
+  return { ok: true };
+}
+
+/** F01 — télécharger le binaire d'un fichier (version courante). */
+export async function downloadFile(
+  userId: string,
+  fileId: string,
+): Promise<{ blob: Blob; contentType: string; name: string; size: number }> {
+  if (!isStorageConfigured()) throw STORAGE_NOT_CONFIGURED();
+  const client = getStorageClient();
+  if (!client) throw STORAGE_NOT_CONFIGURED();
+  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  if (!row) throw FILE_NOT_FOUND();
+  const result = await downloadFromStorage(client, row.storagePath);
+  if (!result.ok) {
+    throw new GaiaError("ServiceUnavailable", "STORAGE_DOWNLOAD_FAILED", 503, result.error);
+  }
+  return { blob: result.blob, contentType: result.contentType, name: row.name, size: row.size };
+}
+
+/** F10/F12 — enregistrer le texte extrait (calque texte PDF ou OCR). */
+export async function saveFileText(
+  userId: string,
+  fileId: string,
+  input: unknown,
+): Promise<{ file: GaiaFileDTO }> {
+  const parsed = parseOrThrow(fileTextInputSchema, input);
+  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  if (!row) throw FILE_NOT_FOUND();
+  const updated = await db.gaiaFile.update({
+    where: { id: row.id },
+    data: { ocrText: parsed.text },
+  });
+  const folders = await loadFolders(userId);
+  return {
+    file: fileToDTO(
+      updated,
+      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
+      await db.fileVersion.count({ where: { fileId: row.id } }),
+      await db.noteFile.count({ where: { fileId: row.id } }),
+    ),
+  };
+}
+
+/** F05 — ajouter une annotation à un document. */
+export async function createFileAnnotation(
+  userId: string,
+  fileId: string,
+  input: unknown,
+): Promise<{ annotation: GaiaFileAnnotationDTO }> {
+  const parsed = parseOrThrow(fileAnnotationInputSchema, input);
+  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  if (!row) throw FILE_NOT_FOUND();
+  const created = await db.fileAnnotation.create({
+    data: {
+      fileId: row.id,
+      userId,
+      page: parsed.page,
+      x: parsed.x,
+      y: parsed.y,
+      width: parsed.width ?? null,
+      height: parsed.height ?? null,
+      type: parsed.type,
+      text: parsed.text,
+      color: parsed.color,
+    },
+  });
+  return { annotation: fileAnnotationToDTO(created) };
+}
+
+/** F05 — supprimer une annotation. */
+export async function deleteFileAnnotation(
+  userId: string,
+  fileId: string,
+  annotationId: string,
+): Promise<{ ok: true }> {
+  const row = await db.fileAnnotation.findFirst({ where: { userId, id: annotationId, fileId } });
+  if (!row) throw notFound("ANNOTATION_NOT_FOUND", "Annotation not found.");
+  await db.fileAnnotation.delete({ where: { id: row.id } });
+  return { ok: true };
+}
+
+/** F06/F15 — attacher un fichier à une note. */
+export async function attachFileToNote(
+  userId: string,
+  noteId: string,
+  fileId: string,
+): Promise<{ ok: true }> {
+  const [note, file] = await Promise.all([
+    db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } }),
+    db.gaiaFile.findFirst({ where: { userId, id: fileId } }),
+  ]);
+  if (!note) throw NOTE_NOT_FOUND();
+  if (!file) throw FILE_NOT_FOUND();
+  await db.noteFile.upsert({
+    where: { fileId_noteId: { fileId: file.id, noteId: note.id } },
+    create: { fileId: file.id, noteId: note.id },
+    update: {},
+  });
+  return { ok: true };
+}
+
+/** F06 — détacher un fichier d'une note (le fichier lui-même est conservé). */
+export async function detachFileFromNote(
+  userId: string,
+  noteId: string,
+  fileId: string,
+): Promise<{ ok: true }> {
+  const note = await db.note.findFirst({ where: { userId, id: noteId } });
+  if (!note) throw NOTE_NOT_FOUND();
+  await db.noteFile.deleteMany({ where: { fileId, noteId: note.id } });
+  return { ok: true };
+}
+
+/** F06 — fichiers attachés à une note. */
+export async function listNoteFiles(
+  userId: string,
+  noteId: string,
+): Promise<{ files: GaiaFileDTO[] }> {
+  const note = await db.note.findFirst({ where: { userId, id: noteId } });
+  if (!note) throw NOTE_NOT_FOUND();
+  const links = await db.noteFile.findMany({
+    where: { noteId: note.id },
+    include: { file: { include: { versions: { select: { id: true } }, notes: { select: { fileId: true } } } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const folders = await loadFolders(userId);
+  const folderNames = new Map(folders.map((f) => [f.id, f.name]));
+  return {
+    files: links.map((l) =>
+      fileToDTO(
+        l.file,
+        l.file.folderId ? (folderNames.get(l.file.folderId) ?? null) : null,
+        l.file.versions.length,
+        l.file.notes.length,
+      ),
+    ),
+  };
+}
+
+/** F15 — notes qui référencent un fichier. */
+export async function listFileNotes(
+  userId: string,
+  fileId: string,
+): Promise<{ notes: Array<{ id: string; title: string; updatedAt: string }> }> {
+  const file = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  if (!file) throw FILE_NOT_FOUND();
+  const links = await db.noteFile.findMany({
+    where: { fileId: file.id },
+    include: { note: { select: { id: true, title: true, updatedAt: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  return {
+    notes: links.map((l) => ({
+      id: l.note.id,
+      title: l.note.title,
+      updatedAt: l.note.updatedAt.toISOString(),
+    })),
+  };
+}
+
+/** F14 — espace de stockage : total, quota, répartition par type, plus gros fichiers. */
+export async function getStorageUsage(userId: string): Promise<{ usage: GaiaStorageUsageDTO }> {
+  const rows = await db.gaiaFile.findMany({
+    where: { userId },
+    select: { id: true, name: true, mimeType: true, size: true },
+  });
+  const byKind = new Map<GaiaFileKind, { count: number; bytes: number }>();
+  let totalBytes = 0;
+  for (const row of rows) {
+    const kind = fileKindOf(row.mimeType, row.name);
+    const entry = byKind.get(kind) ?? { count: 0, bytes: 0 };
+    entry.count += 1;
+    entry.bytes += row.size;
+    byKind.set(kind, entry);
+    totalBytes += row.size;
+  }
+  const largest = [...rows]
+    .sort((a, b) => b.size - a.size)
+    .slice(0, 5)
+    .map((r) => ({ id: r.id, name: r.name, size: r.size, mimeType: r.mimeType }));
+  return {
+    usage: {
+      totalBytes,
+      quotaBytes: GAIA_STORAGE_QUOTA_BYTES,
+      fileCount: rows.length,
+      byKind: [...byKind.entries()].map(([kind, v]) => ({ kind, count: v.count, bytes: v.bytes })),
+      largest,
+    },
+  };
 }

@@ -53,6 +53,8 @@ export const GAIA_BLOCK_TYPES = [
   "embed",
   "toc",
   "synced",
+  // Module 3 — File & Document Management : bloc fichier (F06/F09).
+  "file",
 ] as const;
 
 export type GaiaBlockType = (typeof GAIA_BLOCK_TYPES)[number];
@@ -140,6 +142,8 @@ export type GaiaBlockInput = {
   syncId?: string;
   comments?: GaiaBlockComment[];
   tableMeta?: GaiaTableMeta;
+  /** Module 3 : id du GaiaFile référencé (bloc `file`). */
+  fileId?: string;
 };
 
 export const gaiaBlockInputSchema: z.ZodType<GaiaBlockInput> = z.lazy(() =>
@@ -166,6 +170,7 @@ export const gaiaBlockInputSchema: z.ZodType<GaiaBlockInput> = z.lazy(() =>
     syncId: z.string().min(1).max(64).optional(),
     comments: z.array(gaiaBlockCommentInputSchema).max(GAIA_MAX_COMMENTS).optional(),
     tableMeta: gaiaTableMetaInputSchema.optional(),
+    fileId: z.string().min(1).max(64).optional(),
   }),
 );
 
@@ -198,6 +203,8 @@ export type GaiaBlock = {
   syncId?: string;
   comments?: GaiaBlockComment[];
   tableMeta?: GaiaTableMeta;
+  /** Module 3 : id du GaiaFile référencé (bloc `file`). */
+  fileId?: string;
 };
 
 /** Nouvel id de bloc : `nb-` + 24 caractères hex. */
@@ -260,6 +267,7 @@ export function normalizeBlocks(input: GaiaBlockInput[]): GaiaBlock[] {
       }));
     }
     if (block.tableMeta !== undefined) out.tableMeta = block.tableMeta;
+    if (block.fileId !== undefined) out.fileId = block.fileId;
     if (depth < GAIA_MAX_NESTING_DEPTH) {
       if (block.children !== undefined) {
         out.children = block.children.map((child) => normalizeOne(child, depth + 1));

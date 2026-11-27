@@ -520,3 +520,56 @@ npm install
 npx prisma db push
 # restart dev, hard refresh
 ```
+
+## Module 3 — File & Document Management (F01–F15)
+
+- Upload (drag & drop, multi-files, 25 MB max, executables refused),
+  Supabase Storage (private bucket `gaia-files`, server-side service role
+  key, API proxy for download/preview), file manager (search by name +
+  extracted text, type/folder filters, sort, grid/list, image gallery),
+  PDF viewer (pdf.js, page nav, zoom), PDF annotations (note pins +
+  highlights, relative coordinates), attachments on notes (multiple
+  files per note, `file` block in the editor with inline audio/video
+  preview), audio attachments, video embeds (uploaded files, player),
+  OCR (tesseract.js eng+fra, images + scanned PDFs, 10 pages max),
+  document preview by type (image, PDF, audio, video, text), file
+  search, file versioning (replace = new version, restore creates a
+  version), storage management (used / 1 GB quota, breakdown by type,
+  largest files), file references (one file, several notes).
+- Schema: `GaiaFile` (+ `folderId` → `NoteFolder`), `FileVersion`,
+  `FileAnnotation`, `NoteFile` (join file ↔ note). `Note.blocks` gains
+  the `file` block type (`fileId`).
+- `prisma/storage.sql` — bucket + storage.objects policies (apply in the
+  Supabase SQL editor, after `db push`). `prisma/rls.sql` — 16 new
+  policies (4 per new table), 52 policies total. RLS is still not applied
+  on Supabase — apply the whole file after `db push`.
+- `src/server/storage.ts` — Supabase Storage client (server only).
+  `src/lib/gaia/files.ts` — client-safe helpers (kinds, sizes, quota).
+- New API routes (unversioned + `/api/v1/gaia/` mirrors): `files`
+  (GET list + POST upload), `files/storage`, `files/[id]` (GET/PATCH/
+  DELETE), `files/[id]/download`, `files/[id]/versions` (POST replace),
+  `files/[id]/restore`, `files/[id]/annotations` (+ `[annotationId]`),
+  `files/[id]/text`, `files/[id]/notes`, `notes/[id]/files` (+
+  `[fileId]`).
+- New components: `gaia-files.tsx` (manager, detail, attachments,
+  picker), `gaia-pdf-viewer.tsx`. Modified: `gaia-view.tsx` (Files tab),
+  `gaia-editor.tsx` (attachments section + markdown export),
+  `gaia-blocks.tsx` (`file` block + slash command), `gaia-shared.tsx`
+  (types + hooks), `messages/en.json`. New deps: `@supabase/supabase-js`,
+  `pdfjs-dist`, `tesseract.js`.
+- PDF text layer is extracted automatically after upload (searchable);
+  scanned PDFs and images need the manual OCR button (runs in the
+  browser, eng+fra).
+
+### Module 3 — PC steps (after pull)
+
+```powershell
+npm install
+npx prisma db push
+# .env : add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
+#   (Supabase Dashboard → Project Settings → API)
+# Supabase SQL editor : run prisma/storage.sql, then prisma/rls.sql
+# Vercel → gaia → Settings → Environment Variables (Production + Preview) :
+#   add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, then redeploy
+# restart dev, hard refresh
+```

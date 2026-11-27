@@ -688,6 +688,7 @@ const CUSTOM_TYPES: GaiaBlockType[] = [
   "drawing",
   "mermaid",
   "embed",
+  "file",
   "toc",
   "synced",
 ];

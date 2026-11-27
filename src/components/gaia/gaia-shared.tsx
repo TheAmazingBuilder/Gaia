@@ -54,7 +54,9 @@ export type GaiaBlockType =
   | "mermaid"
   | "embed"
   | "toc"
-  | "synced";
+  | "synced"
+  // Module 3 — File & Document Management.
+  | "file";
 
 export type GaiaTableColType = "text" | "number" | "date" | "checkbox";
 
@@ -116,6 +118,8 @@ export interface GaiaBlock {
   comments?: GaiaBlockComment[];
   /** Module 1 : tri + types de colonnes du tableau. */
   tableMeta?: GaiaTableMeta;
+  /** Module 3 : id du GaiaFile référencé (bloc `file`). */
+  fileId?: string;
 }
 
 /** Module 1 — couverture de note : image (URL ou data URL) ou dégradé. */
@@ -298,7 +302,8 @@ export type GaiaTab =
   | "graph"
   | "knowledge"
   | "canvas"
-  | "inbox";
+  | "inbox"
+  | "files";
 
 export interface GaiaNotesParams {
   view: GaiaNotesView;
@@ -1418,5 +1423,274 @@ export function useCreateGaiaWeeklyNote() {
         method: "POST",
       }),
     onSuccess: () => invalidate(),
+  });
+}
+
+// ── Module 3 — File & Document Management (F01–F15) ─────────────────────
+
+export type { GaiaFileKind } from "@/lib/gaia/files";
+
+export interface GaiaFileDTO {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: import("@/lib/gaia/files").GaiaFileKind;
+  size: number;
+  folderId: string | null;
+  folderName: string | null;
+  hasText: boolean;
+  versionCount: number;
+  noteCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GaiaFileVersionDTO {
+  version: number;
+  size: number;
+  createdAt: string;
+  current: boolean;
+}
+
+export interface GaiaFileAnnotationDTO {
+  id: string;
+  fileId: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number | null;
+  height: number | null;
+  type: string;
+  text: string;
+  color: string;
+  createdAt: string;
+}
+
+export interface GaiaFileDetailDTO extends GaiaFileDTO {
+  ocrText: string;
+  versions: GaiaFileVersionDTO[];
+  annotations: GaiaFileAnnotationDTO[];
+  notes: Array<{ id: string; title: string; updatedAt: string }>;
+}
+
+export interface GaiaStorageUsageDTO {
+  totalBytes: number;
+  quotaBytes: number;
+  fileCount: number;
+  byKind: Array<{ kind: import("@/lib/gaia/files").GaiaFileKind; count: number; bytes: number }>;
+  largest: Array<{ id: string; name: string; size: number; mimeType: string }>;
+}
+
+export interface GaiaFilesParams {
+  q?: string;
+  folderId?: string;
+  kind?: import("@/lib/gaia/files").GaiaFileKind;
+  sort?: "newest" | "name" | "size";
+}
+
+/** URL de téléchargement / aperçu d'un fichier (proxy API, session requise). */
+export function gaiaFileDownloadUrl(fileId: string, download = false): string {
+  return `${GAIA_BASE}/files/${fileId}/download${download ? "?download=1" : ""}`;
+}
+
+/** Upload multipart : apiFetch force le JSON, on passe par fetch directement. */
+async function uploadForm<T>(url: string, form: FormData): Promise<T> {
+  const res = await fetch(url, { method: "POST", body: form });
+  if (res.status === 204) return undefined as T;
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const errBody =
+      body && typeof body === "object" && "error" in body
+        ? (body as { error: string; message: string })
+        : { error: "NETWORK", message: "Invalid server response." };
+    throw new ApiClientError(errBody, res.status);
+  }
+  return body as T;
+}
+
+export function useGaiaFiles(params: GaiaFilesParams = {}) {
+  const key = ["gaia", "files", params.q ?? "", params.folderId ?? "", params.kind ?? "", params.sort ?? "newest"];
+  const search = new URLSearchParams();
+  if (params.q) search.set("q", params.q);
+  if (params.folderId) search.set("folderId", params.folderId);
+  if (params.kind) search.set("kind", params.kind);
+  if (params.sort) search.set("sort", params.sort);
+  const qs = search.toString();
+  return useQuery({
+    queryKey: key,
+    queryFn: () =>
+      apiFetch<{ files: GaiaFileDTO[]; total: number }>(
+        `${GAIA_BASE}/files${qs === "" ? "" : `?${qs}`}`,
+      ),
+  });
+}
+
+export function useGaiaFile(fileId: string | null) {
+  return useQuery({
+    queryKey: ["gaia", "files", fileId],
+    queryFn: () => apiFetch<{ file: GaiaFileDetailDTO }>(`${GAIA_BASE}/files/${fileId}`),
+    enabled: fileId !== null && fileId !== "",
+  });
+}
+
+export function useGaiaStorageUsage() {
+  return useQuery({
+    queryKey: ["gaia", "files", "storage"],
+    queryFn: () => apiFetch<{ usage: GaiaStorageUsageDTO }>(`${GAIA_BASE}/files/storage`),
+  });
+}
+
+export function useUploadGaiaFile() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ file, folderId }: { file: File; folderId?: string | null }) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (folderId) form.append("folderId", folderId);
+      return uploadForm<{ file: GaiaFileDTO }>(`${GAIA_BASE}/files`, form);
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useReplaceGaiaFile() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ fileId, file }: { fileId: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return uploadForm<{ file: GaiaFileDTO }>(`${GAIA_BASE}/files/${fileId}/versions`, form);
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useUpdateGaiaFile() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ fileId, name, folderId }: { fileId: string; name?: string; folderId?: string | null }) =>
+      apiFetch<{ file: GaiaFileDTO }>(`${GAIA_BASE}/files/${fileId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...(name !== undefined ? { name } : {}), ...(folderId !== undefined ? { folderId } : {}) }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaFile() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (fileId: string) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/files/${fileId}`, { method: "DELETE" }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useRestoreGaiaFileVersion() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ fileId, version }: { fileId: string; version: number }) =>
+      apiFetch<{ file: GaiaFileDTO }>(`${GAIA_BASE}/files/${fileId}/restore`, {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useSaveGaiaFileText() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ fileId, text, source }: { fileId: string; text: string; source: "pdf" | "ocr" }) =>
+      apiFetch<{ file: GaiaFileDTO }>(`${GAIA_BASE}/files/${fileId}/text`, {
+        method: "POST",
+        body: JSON.stringify({ text, source }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useCreateGaiaFileAnnotation() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({
+      fileId,
+      page,
+      x,
+      y,
+      width,
+      height,
+      type,
+      text,
+      color,
+    }: {
+      fileId: string;
+      page: number;
+      x: number;
+      y: number;
+      width?: number | null;
+      height?: number | null;
+      type: "note" | "highlight";
+      text?: string;
+      color?: string;
+    }) =>
+      apiFetch<{ annotation: GaiaFileAnnotationDTO }>(`${GAIA_BASE}/files/${fileId}/annotations`, {
+        method: "POST",
+        body: JSON.stringify({ page, x, y, width, height, type, text, color }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaFileAnnotation() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ fileId, annotationId }: { fileId: string; annotationId: string }) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/files/${fileId}/annotations/${annotationId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useGaiaNoteFiles(noteId: string | null) {
+  return useQuery({
+    queryKey: ["gaia", "notes", noteId, "files"],
+    queryFn: () => apiFetch<{ files: GaiaFileDTO[] }>(`${GAIA_BASE}/notes/${noteId}/files`),
+    enabled: noteId !== null && noteId !== "",
+  });
+}
+
+export function useAttachGaiaFile() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, fileId }: { noteId: string; fileId: string }) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/notes/${noteId}/files`, {
+        method: "POST",
+        body: JSON.stringify({ fileId }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDetachGaiaFile() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, fileId }: { noteId: string; fileId: string }) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/notes/${noteId}/files/${fileId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useGaiaFileNotes(fileId: string | null) {
+  return useQuery({
+    queryKey: ["gaia", "files", fileId, "notes"],
+    queryFn: () =>
+      apiFetch<{ notes: Array<{ id: string; title: string; updatedAt: string }> }>(
+        `${GAIA_BASE}/files/${fileId}/notes`,
+      ),
+    enabled: fileId !== null && fileId !== "",
   });
 }
