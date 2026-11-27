@@ -95,6 +95,7 @@ import {
 } from "@/modules/notes/services/lifecycle";
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
+import { getNoteQuery } from "@/modules/notes/services/details";
 import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
 import {
   getTodayWordsQuery,
@@ -1016,15 +1017,14 @@ export async function getNote(
   userId: string,
   noteId: string,
 ): Promise<GaiaNoteResponse> {
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const now = new Date();
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: { lastViewedAt: now },
+  return getNoteQuery(userId, noteId, {
+    noteNotFound: NOTE_NOT_FOUND,
+    findActiveNote,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
+    },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, updated, folders, tags);
 }
 
 /* ── Notes : écriture ────────────────────────────────────────────────── */
