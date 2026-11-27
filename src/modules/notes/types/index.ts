@@ -102,3 +102,14 @@ export type GaiaListQuery = {
   pageSize?: number;
   collectionId?: string;
 };
+
+
+export type GaiaTemplateDTO = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  blocks: GaiaBlock[];
+  builtIn: boolean;
+  createdAt: string;
+};
