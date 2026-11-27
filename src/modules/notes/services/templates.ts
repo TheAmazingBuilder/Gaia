@@ -50,11 +50,11 @@ function parseOrThrow<T>(
 
 function stripRefs(blocks: GaiaBlock[]): GaiaBlock[] {
   return blocks.map((block) => {
-    const next = { ...block };
+    const { ref: _ref, ...rest } = block;
+    const next: GaiaBlock = rest;
     if (block.children) next.children = stripRefs(block.children);
-    if (block.columns) next.columns = block.columns.map((column) => stripRefs(column));
-    if (next.type === "ref") {
-      return { id: next.id, type: "paragraph", text: "" } as GaiaBlock;
+    if (block.columns) {
+      next.columns = block.columns.map((column) => stripRefs(column));
     }
     return next;
   });
