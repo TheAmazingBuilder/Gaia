@@ -1,0 +1,182 @@
+import { db } from "@/lib/db";
+import { noteUpdateInputSchema } from "@/modules/notes/schemas";
+import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
+import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
+import { collectSyncedTexts, syncTextAcross } from "@/lib/gaia/tree";
+import {
+  shouldSnapshot,
+  sortVersionsNewestFirst,
+  versionsBeyondCap,
+} from "@/lib/gaia/versioning";
+import type { Note } from "@prisma/client";
+import type { z } from "zod";
+
+type UpdateNoteDependencies = {
+  validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
+  noteNotFound: () => Error;
+  normalizeBlocks: (input: GaiaBlockInput[]) => GaiaBlock[];
+  parseStoredBlocks: (stored: string | null | undefined) => GaiaBlock[];
+  assertSafeImageSources: (blocks: GaiaBlock[]) => void;
+  normalizeProperties: (properties: GaiaNoteProperty[]) => GaiaNoteProperty[];
+  noteResponse: (userId: string, note: Note) => Promise<GaiaNoteResponse>;
+};
+
+function parseOrThrow<T>(
+  schema: { safeParse: (input: unknown) => { success: true; data: T } | { success: false; error: z.ZodError } },
+  input: unknown,
+  validationError: UpdateNoteDependencies["validationError"],
+): T {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) {
+    throw validationError(
+      "Some fields are invalid.",
+      parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      })),
+    );
+  }
+  return parsed.data;
+}
+
+/** Create the same bounded snapshot that the legacy notes service made before content changes. */
+async function maybeSnapshotVersion(userId: string, note: Note): Promise<void> {
+  const versions = await db.noteVersion.findMany({ where: { userId, noteId: note.id } });
+  const newest = sortVersionsNewestFirst(versions)[0] ?? null;
+  const now = new Date();
+  if (!shouldSnapshot(newest ? newest.savedAt : null, now)) return;
+
+  await db.noteVersion.create({
+    data: {
+      userId,
+      noteId: note.id,
+      title: note.title,
+      blocks: note.blocks,
+      savedAt: note.updatedAt,
+    },
+  });
+
+  const after = sortVersionsNewestFirst(
+    await db.noteVersion.findMany({ where: { userId, noteId: note.id } }),
+  );
+  const extra = versionsBeyondCap(after);
+  if (extra.length > 0) {
+    await db.noteVersion.deleteMany({ where: { userId, id: { in: extra } } });
+  }
+}
+
+/** Propagate edits to matching synced blocks in the user's other active notes. */
+async function propagateSyncedBlocks(
+  userId: string,
+  sourceNoteId: string,
+  synced: Map<string, string>,
+  parseStoredBlocks: UpdateNoteDependencies["parseStoredBlocks"],
+): Promise<void> {
+  const others = await db.note.findMany({
+    where: { userId, deletedAt: null, id: { not: sourceNoteId } },
+    select: { id: true, blocks: true },
+  });
+
+  for (const other of others) {
+    let next = parseStoredBlocks(other.blocks);
+    let changed = false;
+    for (const [syncId, text] of synced) {
+      const updatedBlocks = syncTextAcross(next, syncId, text);
+      if (updatedBlocks !== next) {
+        changed = true;
+        next = updatedBlocks;
+      }
+    }
+    if (changed) {
+      await db.note.update({
+        where: { id: other.id },
+        data: { blocks: JSON.stringify(next) },
+      });
+    }
+  }
+}
+
+/**
+ * Update a note while preserving the legacy API semantics, version snapshots,
+ * tag filtering, block validation and cross-note synced-block propagation.
+ */
+export async function updateNoteCommand(
+  userId: string,
+  noteId: string,
+  input: unknown,
+  deps: UpdateNoteDependencies,
+): Promise<GaiaNoteResponse> {
+  const parsed = parseOrThrow(noteUpdateInputSchema, input, deps.validationError);
+  const note = await db.note.findFirst({
+    where: { userId, id: noteId, deletedAt: null },
+  });
+  if (!note) throw deps.noteNotFound();
+
+  const hasMeaningfulChange =
+    parsed.title !== undefined ||
+    parsed.icon !== undefined ||
+    parsed.folderId !== undefined ||
+    parsed.tagIds !== undefined ||
+    parsed.favorite !== undefined ||
+    parsed.blocks !== undefined ||
+    parsed.cover !== undefined ||
+    parsed.wordGoal !== undefined ||
+    parsed.properties !== undefined;
+
+  if (!hasMeaningfulChange) {
+    if (parsed.touchViewed === true) {
+      const touched = await db.note.update({
+        where: { id: note.id },
+        data: { lastViewedAt: new Date() },
+      });
+      return deps.noteResponse(userId, touched);
+    }
+    return deps.noteResponse(userId, note);
+  }
+
+  await maybeSnapshotVersion(userId, note);
+
+  const data: {
+    title?: string;
+    icon?: string | null;
+    folderId?: string | null;
+    tagIds?: string;
+    favorite?: boolean;
+    blocks?: string;
+    cover?: string | null;
+    wordGoal?: number | null;
+    properties?: string;
+    updatedAt: Date;
+  } = { updatedAt: new Date() };
+
+  if (parsed.title !== undefined) data.title = parsed.title.trim();
+  if (parsed.icon !== undefined) data.icon = parsed.icon;
+  if (parsed.folderId !== undefined) data.folderId = parsed.folderId;
+  if (parsed.favorite !== undefined) data.favorite = parsed.favorite;
+  if (parsed.cover !== undefined) data.cover = parsed.cover;
+  if (parsed.wordGoal !== undefined) data.wordGoal = parsed.wordGoal;
+  if (parsed.properties !== undefined) {
+    data.properties = JSON.stringify(deps.normalizeProperties(parsed.properties));
+  }
+  if (parsed.tagIds !== undefined) {
+    const known = await db.noteTag.findMany({ where: { userId } });
+    const knownIds = new Set(known.map((tag) => tag.id));
+    data.tagIds = JSON.stringify(parsed.tagIds.filter((id) => knownIds.has(id)));
+  }
+  if (parsed.blocks !== undefined) {
+    const blocks = deps.normalizeBlocks(parsed.blocks);
+    deps.assertSafeImageSources(blocks);
+    data.blocks = JSON.stringify(blocks);
+  }
+
+  const updated = await db.note.update({ where: { id: note.id }, data });
+
+  if (parsed.blocks !== undefined) {
+    const synced = collectSyncedTexts(deps.normalizeBlocks(parsed.blocks));
+    if (synced.size > 0) {
+      await propagateSyncedBlocks(userId, note.id, synced, deps.parseStoredBlocks);
+    }
+  }
+
+  return deps.noteResponse(userId, updated);
+}
