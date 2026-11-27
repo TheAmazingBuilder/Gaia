@@ -9,6 +9,24 @@
  */
 import { NextResponse } from "next/server";
 import type {
+  GaiaNoteDTO,
+  GaiaNoteProperty,
+  GaiaNotePropertyType,
+  GaiaNoteResponse,
+  GaiaNoteRow,
+  GaiaVersionDetail,
+  GaiaVersionSummary,
+} from "@/modules/notes/types";
+export type {
+  GaiaNoteDTO,
+  GaiaNoteProperty,
+  GaiaNotePropertyType,
+  GaiaNoteResponse,
+  GaiaNoteRow,
+  GaiaVersionDetail,
+  GaiaVersionSummary,
+} from "@/modules/notes/types";
+import type {
   InboxItem,
   KnowledgeCanvas,
   Note,
@@ -238,15 +256,6 @@ const noteDuplicateInputSchema = z.object({
 
 /* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
-export type GaiaNotePropertyType = "text" | "number" | "date" | "checkbox" | "select";
-
-export type GaiaNoteProperty = {
-  key: string;
-  value: string;
-  type: GaiaNotePropertyType;
-  options?: string[];
-};
-
 export const gaiaCollectionCriteriaSchema = z.object({
   folderId: z.string().nullable().optional(),
   tagIds: z.array(z.string()).max(24).optional(),
@@ -353,73 +362,6 @@ function assertSafeImageSources(blocks: GaiaBlock[]): void {
 }
 
 /* ── Types de réponse ────────────────────────────────────────────────── */
-
-export type GaiaNoteRow = {
-  id: string;
-  title: string;
-  icon: string | null;
-  folderId: string | null;
-  folderName: string | null;
-  tagIds: string[];
-  tagNames: string[];
-  favorite: boolean;
-  templateId: string | null;
-  excerpt: string;
-  wordCount: number;
-  blockCount: number;
-  refCount: number;
-  todoOpen: number;
-  // Module 1 — couverture (JSON sérialisé) + objectif d'écriture.
-  cover: string | null;
-  wordGoal: number | null;
-  // Module 2 (K13) — propriétés personnalisées.
-  properties: GaiaNoteProperty[];
-  createdAt: string;
-  updatedAt: string;
-  lastViewedAt: string | null;
-  deletedAt: string | null;
-  // Phase 1 — Memory (Heat Memory System + spaced repetition).
-  mastery: MasteryLevel;
-  lastReviewedAt: string | null;
-  nextReviewAt: string | null;
-  reviewCount: number;
-  easeFactor: number;
-  intervalDays: number;
-};
-
-export type GaiaNoteDTO = {
-  id: string;
-  userId: string;
-  title: string;
-  icon: string | null;
-  folderId: string | null;
-  tagIds: string[];
-  favorite: boolean;
-  templateId: string | null;
-  blocks: GaiaBlock[];
-  // Module 1 — couverture (JSON sérialisé) + objectif d'écriture.
-  cover: string | null;
-  wordGoal: number | null;
-  // Module 2 (K13) — propriétés personnalisées.
-  properties: GaiaNoteProperty[];
-  createdAt: string;
-  updatedAt: string;
-  lastViewedAt: string | null;
-  deletedAt: string | null;
-  // Phase 1 — Memory (Heat Memory System + spaced repetition).
-  mastery: MasteryLevel;
-  lastReviewedAt: string | null;
-  nextReviewAt: string | null;
-  reviewCount: number;
-  easeFactor: number;
-  intervalDays: number;
-};
-
-export type GaiaNoteResponse = {
-  note: GaiaNoteDTO;
-  folderName: string | null;
-  tagNames: string[];
-};
 
 export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
@@ -535,20 +477,6 @@ export type GaiaOverviewResponse = {
   topTags: GaiaTagDTO[];
   activity: GaiaActivityWeek[];
   templates: GaiaTemplateDTO[];
-};
-
-export type GaiaVersionSummary = {
-  id: string;
-  title: string;
-  savedAt: string;
-  wordCount: number;
-};
-
-export type GaiaVersionDetail = {
-  id: string;
-  title: string;
-  savedAt: string;
-  blocks: GaiaBlock[];
 };
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
