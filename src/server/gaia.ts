@@ -39,6 +39,7 @@ export type {
 } from "@/modules/files/types";
 import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
+import { fileAnnotationToDTO, fileToDTO, fileVersionToDTO } from "@/modules/files/mappers";
 
 import { db } from "@/lib/db";
 import {
@@ -3265,53 +3266,6 @@ export async function getOrCreateWeeklyNote(
 // ── Module 3 — File & Document Management (F01–F15) ─────────────────────
 // Les binaires vivent dans Supabase Storage (bucket privé `gaia-files`) ;
 // ici ne vivent que les métadonnées, toujours scopées par userId.
-
-function fileToDTO(
-  row: GaiaFile,
-  folderName: string | null,
-  versionCount: number,
-  noteCount: number,
-): GaiaFileDTO {
-  return {
-    id: row.id,
-    name: row.name,
-    mimeType: row.mimeType,
-    kind: fileKindOf(row.mimeType, row.name),
-    size: row.size,
-    folderId: row.folderId,
-    folderName,
-    hasText: row.ocrText !== "",
-    versionCount,
-    noteCount,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-function fileVersionToDTO(row: FileVersion, currentPath: string): GaiaFileVersionDTO {
-  return {
-    version: row.version,
-    size: row.size,
-    createdAt: row.createdAt.toISOString(),
-    current: row.storagePath === currentPath,
-  };
-}
-
-function fileAnnotationToDTO(row: FileAnnotation): GaiaFileAnnotationDTO {
-  return {
-    id: row.id,
-    fileId: row.fileId,
-    page: row.page,
-    x: row.x,
-    y: row.y,
-    width: row.width,
-    height: row.height,
-    type: row.type,
-    text: row.text,
-    color: row.color,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
 
 function kindWhere(kind: GaiaFileKind): Prisma.GaiaFileWhereInput {
   switch (kind) {
