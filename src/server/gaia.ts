@@ -50,6 +50,10 @@ import {
   listNoteFilesQuery,
 } from "@/modules/files/services/associations";
 import {
+  replaceFileCommand,
+  restoreFileVersionCommand,
+} from "@/modules/files/services/lifecycle";
+import {
   getFileQuery,
   getStorageUsageQuery,
   listFilesQuery,
@@ -3357,44 +3361,13 @@ export async function replaceFile(
   fileId: string,
   input: { name: string; mimeType: string; size: number; buffer: Buffer },
 ): Promise<{ file: GaiaFileDTO }> {
-  if (!isStorageConfigured()) throw STORAGE_NOT_CONFIGURED();
-  const client = getStorageClient();
-  if (!client) throw STORAGE_NOT_CONFIGURED();
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  return replaceFileCommand(userId, fileId, input, {
+    fileNotFound: FILE_NOT_FOUND,
+    storageNotConfigured: STORAGE_NOT_CONFIGURED,
+    validationError,
+    storageUploadFailed: (message) =>
+      new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, message),
   });
-  if (!row) throw FILE_NOT_FOUND();
-  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
-    throw validationError("File size is out of bounds.");
-  }
-  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
-  const name = input.name.trim().slice(0, 200) || row.name;
-  const path = storagePathFor(userId, row.id, nextVersion, name);
-  const uploaded = await uploadToStorage(client, path, input.buffer, input.mimeType);
-  if (!uploaded.ok) {
-    throw new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, uploaded.error ?? "Upload failed.");
-  }
-  const updated = await db.gaiaFile.update({
-    where: { id: row.id },
-    data: {
-      name,
-      mimeType: input.mimeType.slice(0, 200),
-      size: input.size,
-      storagePath: path,
-      ocrText: "",
-      versions: { create: { version: nextVersion, storagePath: path, size: input.size } },
-    },
-  });
-  const folders = await loadFolders(userId);
-  return {
-    file: fileToDTO(
-      updated,
-      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
-      nextVersion,
-      await db.noteFile.count({ where: { fileId: row.id } }),
-    ),
-  };
 }
 
 /** F13 — restaurer une ancienne version : crée une version qui pointe vers l'ancien binaire. */
@@ -3403,35 +3376,11 @@ export async function restoreFileVersion(
   fileId: string,
   version: number,
 ): Promise<{ file: GaiaFileDTO }> {
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  return restoreFileVersionCommand(userId, fileId, version, {
+    fileNotFound: FILE_NOT_FOUND,
+    versionNotFound: () => notFound("FILE_VERSION_NOT_FOUND", "File version not found."),
+    validationError,
   });
-  if (!row) throw FILE_NOT_FOUND();
-  const target = await db.fileVersion.findFirst({ where: { fileId: row.id, version } });
-  if (!target) throw notFound("FILE_VERSION_NOT_FOUND", "File version not found.");
-  if (target.storagePath === row.storagePath) {
-    throw validationError("This version is already the current one.");
-  }
-  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
-  const updated = await db.gaiaFile.update({
-    where: { id: row.id },
-    data: {
-      storagePath: target.storagePath,
-      size: target.size,
-      ocrText: "",
-      versions: { create: { version: nextVersion, storagePath: target.storagePath, size: target.size } },
-    },
-  });
-  const folders = await loadFolders(userId);
-  return {
-    file: fileToDTO(
-      updated,
-      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
-      nextVersion,
-      await db.noteFile.count({ where: { fileId: row.id } }),
-    ),
-  };
 }
 
 /** F01 — supprimer un fichier : base + toutes les versions dans Storage. */
