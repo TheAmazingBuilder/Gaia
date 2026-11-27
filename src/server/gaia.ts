@@ -96,7 +96,7 @@ import {
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { getNoteQuery } from "@/modules/notes/services/details";
-import { listNotesQuery, NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/services/list";
+import { listNotesQuery, NOTE_LIST_SELECT, type NoteRowInput } from "@/modules/notes/services/list";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
 import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
