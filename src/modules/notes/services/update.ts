@@ -3,11 +3,6 @@ import { noteUpdateInputSchema } from "@/modules/notes/schemas";
 import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
 import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
 import { collectSyncedTexts, syncTextAcross } from "@/lib/gaia/tree";
-import {
-  shouldSnapshot,
-  sortVersionsNewestFirst,
-  versionsBeyondCap,
-} from "@/lib/gaia/versioning";
 import type { Note } from "@prisma/client";
 import type { z } from "zod";
 
@@ -18,6 +13,7 @@ type UpdateNoteDependencies = {
   parseStoredBlocks: (stored: string | null | undefined) => GaiaBlock[];
   assertSafeImageSources: (blocks: GaiaBlock[]) => void;
   normalizeProperties: (properties: GaiaNoteProperty[]) => GaiaNoteProperty[];
+  maybeSnapshotVersion: (userId: string, note: Note) => Promise<void>;
   noteResponse: (userId: string, note: Note) => Promise<GaiaNoteResponse>;
 };
 
@@ -37,32 +33,6 @@ function parseOrThrow<T>(
     );
   }
   return parsed.data;
-}
-
-/** Create the same bounded snapshot that the legacy notes service made before content changes. */
-async function maybeSnapshotVersion(userId: string, note: Note): Promise<void> {
-  const versions = await db.noteVersion.findMany({ where: { userId, noteId: note.id } });
-  const newest = sortVersionsNewestFirst(versions)[0] ?? null;
-  const now = new Date();
-  if (!shouldSnapshot(newest ? newest.savedAt : null, now)) return;
-
-  await db.noteVersion.create({
-    data: {
-      userId,
-      noteId: note.id,
-      title: note.title,
-      blocks: note.blocks,
-      savedAt: note.updatedAt,
-    },
-  });
-
-  const after = sortVersionsNewestFirst(
-    await db.noteVersion.findMany({ where: { userId, noteId: note.id } }),
-  );
-  const extra = versionsBeyondCap(after);
-  if (extra.length > 0) {
-    await db.noteVersion.deleteMany({ where: { userId, id: { in: extra } } });
-  }
 }
 
 /** Propagate edits to matching synced blocks in the user's other active notes. */
@@ -134,7 +104,7 @@ export async function updateNoteCommand(
     return deps.noteResponse(userId, note);
   }
 
-  await maybeSnapshotVersion(userId, note);
+  await deps.maybeSnapshotVersion(userId, note);
 
   const data: {
     title?: string;
