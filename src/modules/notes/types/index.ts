@@ -84,3 +84,21 @@ export type GaiaVersionDetail = {
   savedAt: string;
   blocks: GaiaBlock[];
 };
+
+
+/** Query contract shared by the Notes API facade and list service. */
+export type GaiaListQuery = {
+  view?: string;
+  folderId?: string;
+  tagId?: string;
+  q?: string;
+  sort?: string;
+  refKind?: string;
+  refId?: string;
+  mastery?: string;
+  due?: boolean;
+  period?: string;
+  page?: number;
+  pageSize?: number;
+  collectionId?: string;
+};
