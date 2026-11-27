@@ -13,6 +13,7 @@ type TagErrorDependencies = {
   notFound: (code: string, message: string) => Error;
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
   conflictError: (code: string, message: string) => Error;
+  parseJsonStringArray: (raw: string | null | undefined) => string[];
 };
 
 type TagTreeDependencies = TagErrorDependencies & {
@@ -35,26 +36,26 @@ async function loadTags(userId: string): Promise<NoteTag[]> {
   return db.noteTag.findMany({ where: { userId } });
 }
 
-async function countNotesWithTag(userId: string, tagId: string): Promise<number> {
+async function countNotesWithTag(
+  userId: string,
+  tagId: string,
+  parseJsonStringArray: (raw: string | null | undefined) => string[],
+): Promise<number> {
   const notes = await db.note.findMany({ where: { userId, deletedAt: null } });
-  return notes.filter((note) => JSON.parse(note.tagIds || "[]").includes(tagId)).length;
+  return notes.filter((note) => parseJsonStringArray(note.tagIds).includes(tagId)).length;
 }
 
-export async function listTagsQuery(userId: string): Promise<{ tags: GaiaTagDTO[] }> {
+export async function listTagsQuery(
+  userId: string,
+  parseJsonStringArray: (raw: string | null | undefined) => string[],
+): Promise<{ tags: GaiaTagDTO[] }> {
   const [tags, notes] = await Promise.all([
     loadTags(userId),
     db.note.findMany({ where: { userId, deletedAt: null } }),
   ]);
   const withCounts = tags.map((tag) => ({
     ...tag,
-    noteCount: notes.filter((note) => {
-      try {
-        const ids: unknown = JSON.parse(note.tagIds || "[]");
-        return Array.isArray(ids) && ids.includes(tag.id);
-      } catch {
-        return false;
-      }
-    }).length,
+    noteCount: notes.filter((note) => parseJsonStringArray(note.tagIds).includes(tag.id)).length,
   }));
   withCounts.sort((a, b) => b.noteCount - a.noteCount || a.name.localeCompare(b.name));
   return { tags: withCounts };
@@ -74,7 +75,10 @@ export async function createTagCommand(
   const tags = await loadTags(userId);
   const existing = tags.find((tag) => nameKeyOf(tag.name) === nameKeyOf(name));
   if (existing) {
-    return { ...existing, noteCount: await countNotesWithTag(userId, existing.id) };
+    return {
+      ...existing,
+      noteCount: await countNotesWithTag(userId, existing.id, deps.parseJsonStringArray),
+    };
   }
   let parentId: string | null = null;
   if (parsed.parentId !== undefined && parsed.parentId !== null) {
@@ -130,7 +134,10 @@ export async function updateTagCommand(
     );
   }
   const updated = await db.noteTag.update({ where: { id: tag.id }, data });
-  return { ...updated, noteCount: await countNotesWithTag(userId, updated.id) };
+  return {
+    ...updated,
+    noteCount: await countNotesWithTag(userId, updated.id, deps.parseJsonStringArray),
+  };
 }
 
 export async function deleteTagCommand(
