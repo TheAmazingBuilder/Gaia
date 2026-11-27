@@ -6,6 +6,8 @@ import {
   flattenBlocks,
   parseJsonBlocks,
   parseJsonStringArray,
+  textOfBlocks,
+  gaiaRefKindSchema,
   type GaiaBlock,
 } from "@/lib/gaia/content";
 import {
@@ -178,9 +180,9 @@ export async function listNotesQuery(
   }
 
   if (query.refKind !== undefined && query.refId !== undefined) {
-    const kind = query.refKind;
-    const allowedKinds = ["TRADE", "STRATEGY", "SETUP", "RULE", "LESSON", "EVENT", "SYMBOL", "NOTE"];
-    if (!allowedKinds.includes(kind)) throw deps.validationError("Invalid reference type.");
+    const parsedKind = gaiaRefKindSchema.safeParse(query.refKind);
+    if (!parsedKind.success) throw deps.validationError("Invalid reference type.");
+    const kind = parsedKind.data;
     const all = await db.note.findMany({ where: { userId } });
     const now = new Date();
     const linked = all.filter((note) =>
