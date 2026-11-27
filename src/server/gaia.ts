@@ -103,6 +103,12 @@ import {
   updateFolderCommand,
   type GaiaFolderInput,
 } from "@/modules/notes/services/folders";
+import {
+  createTagCommand,
+  deleteTagCommand,
+  listTagsQuery,
+  updateTagCommand,
+} from "@/modules/notes/services/tags";
 import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/services/list";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
@@ -1346,51 +1352,16 @@ export async function deleteFolder(userId: string, folderId: string): Promise<{ 
 /* ── Tags ────────────────────────────────────────────────────────────── */
 
 export async function listTags(userId: string): Promise<{ tags: GaiaTagDTO[] }> {
-  const [tags, notes] = await Promise.all([
-    loadTags(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-  const withCounts = tags.map((tag) => ({
-    ...tag,
-    noteCount: notes.filter((n) => parseJsonStringArray(n.tagIds).includes(tag.id)).length,
-  }));
-  withCounts.sort((a, b) => b.noteCount - a.noteCount || a.name.localeCompare(b.name));
-  return { tags: withCounts };
+  return listTagsQuery(userId);
 }
 
 export async function createTag(userId: string, input: unknown): Promise<GaiaTagDTO> {
   const parsed = parseOrThrow(tagInputSchema, input);
-  const name = normalizeTagName(parsed.name);
-  if (name === "") {
-    throw validationError("The tag name is required.", [
-      { path: "name", message: "The tag name is required." },
-    ]);
-  }
-  const tags = await loadTags(userId);
-  const existing = tags.find((t) => nameKeyOf(t.name) === nameKeyOf(name));
-  if (existing) {
-    const notes = await db.note.findMany({ where: { userId, deletedAt: null } });
-    return {
-      ...existing,
-      noteCount: notes.filter((n) =>
-        parseJsonStringArray(n.tagIds).includes(existing.id),
-      ).length,
-    };
-  }
-  // Module 2 (K07) : tag hiérarchique + relations explicites.
-  let parentId: string | null = null;
-  if (parsed.parentId !== undefined && parsed.parentId !== null) {
-    const parent = tags.find((t) => t.id === parsed.parentId);
-    if (!parent) throw notFound("TAG_NOT_FOUND", "Tag not found.");
-    parentId = parent.id;
-  }
-  const relatedIds = (parsed.relatedIds ?? []).filter((id) =>
-    tags.some((t) => t.id === id),
-  );
-  const tag = await db.noteTag.create({
-    data: { userId, name, parentId, relatedIds: JSON.stringify(relatedIds) },
+  return createTagCommand(userId, parsed, {
+    notFound: (code, message) => notFound(code, message),
+    validationError,
+    conflictError,
   });
-  return { ...tag, noteCount: 0 };
 }
 
 export async function updateTag(
@@ -1399,81 +1370,19 @@ export async function updateTag(
   input: unknown,
 ): Promise<GaiaTagDTO> {
   const parsed = parseOrThrow(tagInputSchema, input);
-  const tag = await db.noteTag.findFirst({ where: { userId, id: tagId } });
-  if (!tag) throw notFound("TAG_NOT_FOUND", "Tag not found.");
-  const tags = await loadTags(userId);
-  const data: { name?: string; parentId?: string | null; relatedIds?: string } = {};
-  if (parsed.name !== undefined) {
-    const name = normalizeTagName(parsed.name);
-    if (name === "") {
-      throw validationError("The tag name is required.", [
-        { path: "name", message: "The tag name is required." },
-      ]);
-    }
-    if (tags.some((t) => t.id !== tag.id && nameKeyOf(t.name) === nameKeyOf(name))) {
-      throw conflictError("TAG_EXISTS", "A tag with this name already exists.");
-    }
-    data.name = name;
-  }
-  if (parsed.parentId !== undefined) {
-    if (parsed.parentId === null) {
-      data.parentId = null;
-    } else {
-      const parent = tags.find((t) => t.id === parsed.parentId);
-      if (!parent) throw notFound("TAG_NOT_FOUND", "Tag not found.");
-      if (parent.id === tag.id || isDescendantOf(tags, parent.id, tag.id)) {
-        throw validationError("A tag cannot be moved under itself or one of its children.");
-      }
-      data.parentId = parent.id;
-    }
-  }
-  if (parsed.relatedIds !== undefined) {
-    const known = new Set(tags.map((t) => t.id));
-    data.relatedIds = JSON.stringify(
-      parsed.relatedIds.filter((id) => id !== tag.id && known.has(id)),
-    );
-  }
-  const updated = await db.noteTag.update({ where: { id: tag.id }, data });
-  const notes = await db.note.findMany({ where: { userId, deletedAt: null } });
-  return {
-    ...updated,
-    noteCount: notes.filter((n) =>
-      parseJsonStringArray(n.tagIds).includes(updated.id),
-    ).length,
-  };
+  return updateTagCommand(userId, tagId, parsed, {
+    notFound: (code, message) => notFound(code, message),
+    validationError,
+    conflictError,
+    isDescendantOf,
+  });
 }
 
 export async function deleteTag(userId: string, tagId: string): Promise<{ ok: true }> {
-  const tag = await db.noteTag.findFirst({ where: { userId, id: tagId } });
-  if (!tag) throw notFound("TAG_NOT_FOUND", "Tag not found.");
-  // Les enfants remontent à la racine, les relations vers ce tag sont
-  // retirées, et le tag est retiré des notes qui le portaient.
-  await db.noteTag.updateMany({
-    where: { userId, parentId: tag.id },
-    data: { parentId: null },
+  return deleteTagCommand(userId, tagId, {
+    notFound: (code, message) => notFound(code, message),
+    parseJsonStringArray,
   });
-  const others = await db.noteTag.findMany({ where: { userId } });
-  for (const other of others) {
-    const related = parseJsonStringArray(other.relatedIds).filter((id) => id !== tag.id);
-    if (related.length !== parseJsonStringArray(other.relatedIds).length) {
-      await db.noteTag.update({
-        where: { id: other.id },
-        data: { relatedIds: JSON.stringify(related) },
-      });
-    }
-  }
-  const notes = await db.note.findMany({ where: { userId } });
-  for (const note of notes) {
-    const tagIds = parseJsonStringArray(note.tagIds).filter((id) => id !== tag.id);
-    if (tagIds.length !== parseJsonStringArray(note.tagIds).length) {
-      await db.note.update({
-        where: { id: note.id },
-        data: { tagIds: JSON.stringify(tagIds) },
-      });
-    }
-  }
-  await db.noteTag.delete({ where: { id: tag.id } });
-  return { ok: true };
 }
 
 /* ── Modèles ─────────────────────────────────────────────────────────── */
