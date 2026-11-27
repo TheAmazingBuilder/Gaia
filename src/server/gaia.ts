@@ -36,7 +36,7 @@ export type {
 } from "@/modules/files/types";
 import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
-import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
+import { fileToDTO } from "@/modules/files/mappers";
 import {
   createFileAnnotationCommand,
   deleteFileAnnotationCommand,
