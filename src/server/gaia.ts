@@ -12,7 +12,6 @@ import {
   gaiaNotePropertySchema,
   noteCreateInputSchema,
   noteUpdateInputSchema,
-  writingSettingsInputSchema,
   noteDuplicateInputSchema,
 } from "@/modules/notes/schemas";
 export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
@@ -96,6 +95,13 @@ import {
 } from "@/modules/notes/services/lifecycle";
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
+import {
+  getTodayWordsQuery,
+  getWritingSettingsQuery,
+  updateWritingSettingsCommand,
+  type GaiaTodayWords,
+  type GaiaWritingSettings,
+} from "@/modules/notes/services/writing";
 import {
   moveNoteToMasteryCommand,
   reviewNoteCommand,
@@ -1068,79 +1074,21 @@ export async function updateNote(
 
 /* ── Module 1 — Objectifs d'écriture (E12) ─────────────────────────────── */
 
-export type GaiaWritingSettings = { dailyWordGoal: number };
+export type { GaiaWritingSettings, GaiaTodayWords } from "@/modules/notes/services/writing";
 
 export async function getWritingSettings(userId: string): Promise<GaiaWritingSettings> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { dailyWordGoal: true },
-  });
-  return { dailyWordGoal: user?.dailyWordGoal ?? 0 };
+  return getWritingSettingsQuery(userId);
 }
 
 export async function updateWritingSettings(
   userId: string,
   input: unknown,
 ): Promise<GaiaWritingSettings> {
-  const parsed = parseOrThrow(writingSettingsInputSchema, input);
-  const user = await db.user.update({
-    where: { id: userId },
-    data: { dailyWordGoal: parsed.dailyWordGoal },
-    select: { dailyWordGoal: true },
-  });
-  return { dailyWordGoal: user.dailyWordGoal };
+  return updateWritingSettingsCommand(userId, input);
 }
 
-export type GaiaTodayWords = {
-  wordsToday: number;
-  notesTouchedToday: number;
-  date: string;
-};
-
-/**
- * Mots du jour : somme des mots des notes créées ou modifiées aujourd'hui
- * (heure locale de l'utilisateur). Approximation documentée : c'est le
- * volume des notes touchées aujourd'hui, pas un diff mot à mot.
- */
 export async function getTodayWords(userId: string): Promise<GaiaTodayWords> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
-  });
-  const tz = user?.timezone ?? "UTC";
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const y = parts.find((x) => x.type === "year")?.value ?? "1970";
-  const m = parts.find((x) => x.type === "month")?.value ?? "01";
-  const d = parts.find((x) => x.type === "day")?.value ?? "01";
-  const dayStart = new Date(`${y}-${m}-${d}T00:00:00.000Z`);
-  // Bornes en UTC à partir du jour local : on approxime avec le décalage
-  // du fuseau à cet instant (suffisant pour un compteur journalier).
-  const tzOffsetMs = (() => {
-    const utc = new Date(`${y}-${m}-${d}T12:00:00.000Z`);
-    const local = new Date(
-      utc.toLocaleString("en-US", { timeZone: tz }),
-    );
-    return utc.getTime() - local.getTime();
-  })();
-  const start = new Date(dayStart.getTime() + tzOffsetMs);
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  const notes = await db.note.findMany({
-    where: {
-      userId,
-      deletedAt: null,
-      OR: [{ createdAt: { gte: start, lt: end } }, { updatedAt: { gte: start, lt: end } }],
-    },
-    select: { blocks: true },
-  });
-  let wordsToday = 0;
-  for (const note of notes) wordsToday += countWords(parseJsonBlocks(note.blocks));
-  return { wordsToday, notesTouchedToday: notes.length, date: `${y}-${m}-${d}` };
+  return getTodayWordsQuery(userId);
 }
 
 export async function trashNote(userId: string, noteId: string): Promise<{ ok: true }> {
