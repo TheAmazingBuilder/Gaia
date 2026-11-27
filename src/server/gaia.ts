@@ -8,7 +8,18 @@
  * comme un 404.
  */
 import { NextResponse } from "next/server";
-import type { Note, NoteFolder, NoteTag, NoteTemplate, NoteVersion, Prisma } from "@prisma/client";
+import type {
+  InboxItem,
+  KnowledgeCanvas,
+  Note,
+  NoteFolder,
+  NoteRelation,
+  NoteTag,
+  NoteTemplate,
+  NoteVersion,
+  Prisma,
+  SmartCollection,
+} from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
@@ -50,6 +61,18 @@ import {
   sortVersionsNewestFirst,
   versionsBeyondCap,
 } from "@/lib/gaia/versioning";
+import {
+  buildTree,
+  dailyNoteTitle,
+  descendantIds,
+  isDescendantOf,
+  matchCollectionCriteria,
+  suggestLinks,
+  tokenize,
+  weeklyNoteTitle,
+  weekStart,
+  type KnowledgeCollectionCriteria,
+} from "@/lib/gaia/knowledge";
 
 /* ── Erreurs ─────────────────────────────────────────────────────────── */
 
@@ -113,6 +136,17 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 /* ── Schémas d'entrée ────────────────────────────────────────────────── */
 
+// Module 2 (K13) — propriétés de note (déclaré avant les schémas de note
+// qui l'utilisent).
+export const gaiaNotePropertySchema = z.object({
+  key: z.string().min(1).max(40),
+  value: z.string().max(500),
+  type: z.enum(["text", "number", "date", "checkbox", "select"]),
+  options: z.array(z.string().max(80)).max(24).optional(),
+});
+
+const gaiaPropertiesInputSchema = z.array(gaiaNotePropertySchema).max(24);
+
 const noteCreateInputSchema = z.object({
   title: z.string().max(200).optional(),
   folderId: z.string().nullable().optional(),
@@ -120,6 +154,7 @@ const noteCreateInputSchema = z.object({
   blocks: gaiaBlocksInputSchema.optional(),
   cover: z.string().max(2_000_000).nullable().optional(),
   wordGoal: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  properties: gaiaPropertiesInputSchema.optional(),
 });
 
 const noteUpdateInputSchema = z.object({
@@ -131,6 +166,7 @@ const noteUpdateInputSchema = z.object({
   blocks: gaiaBlocksInputSchema.optional(),
   cover: z.string().max(2_000_000).nullable().optional(),
   wordGoal: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  properties: gaiaPropertiesInputSchema.optional(),
   touchViewed: z.boolean().optional(),
 });
 
@@ -142,9 +178,67 @@ const noteDuplicateInputSchema = z.object({
   title: z.string().max(200).optional(),
 });
 
-const folderInputSchema = z.object({ name: z.string().min(1).max(80) });
+/* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
-const tagInputSchema = z.object({ name: z.string().max(80) });
+export type GaiaNotePropertyType = "text" | "number" | "date" | "checkbox" | "select";
+
+export type GaiaNoteProperty = {
+  key: string;
+  value: string;
+  type: GaiaNotePropertyType;
+  options?: string[];
+};
+
+export const gaiaCollectionCriteriaSchema = z.object({
+  folderId: z.string().nullable().optional(),
+  tagIds: z.array(z.string()).max(24).optional(),
+  mastery: z.string().max(20).optional(),
+  favorite: z.boolean().optional(),
+  q: z.string().max(200).optional(),
+  properties: z
+    .array(
+      z.object({ key: z.string().min(1).max(40), value: z.string().max(500) }),
+    )
+    .max(12)
+    .optional(),
+});
+
+const canvasItemSchema = z.object({
+  noteId: z.string().min(1),
+  x: z.number().min(-100).max(5000),
+  y: z.number().min(-100).max(5000),
+  w: z.number().min(120).max(1200).optional(),
+  h: z.number().min(80).max(1200).optional(),
+});
+
+const relationInputSchema = z.object({
+  toNoteId: z.string().min(1),
+  type: z.string().min(1).max(60),
+});
+
+const collectionInputSchema = z.object({
+  name: z.string().min(1).max(120),
+  icon: z.string().max(16).optional(),
+  criteria: gaiaCollectionCriteriaSchema.optional(),
+});
+
+const canvasInputSchema = z.object({
+  name: z.string().min(1).max(120),
+  items: z.array(canvasItemSchema).max(200).optional(),
+});
+
+const inboxInputSchema = z.object({ text: z.string().min(1).max(2000) });
+
+const folderInputSchema = z.object({
+  name: z.string().min(1).max(80),
+  parentId: z.string().nullable().optional(),
+});
+
+const tagInputSchema = z.object({
+  name: z.string().max(80),
+  parentId: z.string().nullable().optional(),
+  relatedIds: z.array(z.string()).max(24).optional(),
+});
 
 const templateCreateInputSchema = z.object({
   name: z.string().min(1).max(120),
@@ -220,6 +314,8 @@ export type GaiaNoteRow = {
   // Module 1 — couverture (JSON sérialisé) + objectif d'écriture.
   cover: string | null;
   wordGoal: number | null;
+  // Module 2 (K13) — propriétés personnalisées.
+  properties: GaiaNoteProperty[];
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -246,6 +342,8 @@ export type GaiaNoteDTO = {
   // Module 1 — couverture (JSON sérialisé) + objectif d'écriture.
   cover: string | null;
   wordGoal: number | null;
+  // Module 2 (K13) — propriétés personnalisées.
+  properties: GaiaNoteProperty[];
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -267,6 +365,89 @@ export type GaiaNoteResponse = {
 
 export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
+
+/* ── Module 2 — Knowledge Management System : types de réponse ─────── */
+
+export type GaiaNoteRelationDTO = {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: string;
+  /** "outgoing" = from the queried note; "incoming" = towards it. */
+  direction: "outgoing" | "incoming";
+  otherNoteId: string;
+  otherTitle: string;
+  createdAt: string;
+};
+
+export type GaiaNoteLinkItem = {
+  id: string;
+  title: string;
+  via: "ref" | "relation";
+  relationType?: string;
+};
+
+export type GaiaUnlinkedMention = {
+  id: string;
+  title: string;
+  snippet: string;
+};
+
+export type GaiaNoteLinksResponse = {
+  outgoing: GaiaNoteLinkItem[];
+  backlinks: GaiaNoteRow[];
+  unlinkedMentions: GaiaUnlinkedMention[];
+  relations: GaiaNoteRelationDTO[];
+};
+
+export type GaiaLinkSuggestion = {
+  id: string;
+  title: string;
+  score: number;
+  sharedWords: string[];
+};
+
+export type GaiaSmartCollectionDTO = {
+  id: string;
+  name: string;
+  icon: string;
+  criteria: KnowledgeCollectionCriteria;
+  noteCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GaiaCanvasItemDTO = {
+  noteId: string;
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+};
+
+export type GaiaCanvasDTO = {
+  id: string;
+  name: string;
+  items: GaiaCanvasItemDTO[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GaiaInboxItemDTO = {
+  id: string;
+  text: string;
+  doneAt: string | null;
+  noteId: string | null;
+  createdAt: string;
+};
+
+export type GaiaKnowledgeTimelineMonth = {
+  month: string;
+  created: number;
+  edited: number;
+  relations: number;
+  notes: Array<{ id: string; title: string; mastery: MasteryLevel; createdAt: string }>;
+};
 
 export type GaiaTemplateDTO = {
   id: string;
@@ -358,6 +539,49 @@ function stripRefs(blocks: GaiaBlock[]): GaiaBlock[] {
   });
 }
 
+/** Parses a JSON string; anything invalid becomes null. */
+function safeJsonParse(raw: string | null | undefined): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** Parses the Note.properties JSON; anything invalid becomes []. */
+function parseJsonProperties(raw: string | null | undefined): GaiaNoteProperty[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const out: GaiaNoteProperty[] = [];
+    for (const item of parsed) {
+      const checked = gaiaNotePropertySchema.safeParse(item);
+      if (checked.success) out.push(checked.data);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Normalizes properties: trims keys, drops empties, last value wins per key. */
+function normalizeProperties(input: GaiaNoteProperty[]): GaiaNoteProperty[] {
+  const byKey = new Map<string, GaiaNoteProperty>();
+  for (const p of input) {
+    const key = p.key.trim();
+    if (key === "") continue;
+    byKey.set(key.toLowerCase(), {
+      key,
+      value: p.value,
+      type: p.type,
+      ...(p.options ? { options: p.options } : {}),
+    });
+  }
+  return [...byKey.values()];
+}
+
 function emptyParagraphBlock(): GaiaBlock {
   return { id: newBlockId(), type: "paragraph", text: "" };
 }
@@ -400,6 +624,7 @@ const NOTE_LIST_SELECT = {
   templateId: true,
   cover: true,
   wordGoal: true,
+  properties: true,
   createdAt: true,
   updatedAt: true,
   lastViewedAt: true,
@@ -439,6 +664,7 @@ function toRow(note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]): Gaia
     todoOpen: countOpenTodos(blocks),
     cover: note.cover ?? null,
     wordGoal: note.wordGoal ?? null,
+    properties: parseJsonProperties(note.properties),
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
@@ -467,6 +693,7 @@ function toDTO(note: Note): GaiaNoteDTO {
     blocks: parseJsonBlocks(note.blocks),
     cover: note.cover ?? null,
     wordGoal: note.wordGoal ?? null,
+    properties: parseJsonProperties(note.properties),
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
@@ -555,6 +782,8 @@ export type GaiaListQuery = {
   page?: number;
   /** Rows per page, 1-100 (default 50). */
   pageSize?: number;
+  /** Module 2 (K06) : filtrer par une collection dynamique. */
+  collectionId?: string;
 };
 
 /** Blocks for a bounded set of note ids (one indexed query). */
@@ -629,6 +858,53 @@ export async function listNotes(
     loadTags(userId),
   ]);
   const { page, pageSize } = pageWindow(query);
+
+  // Module 2 (K06) : vue collection — la requête est évaluée en mémoire
+  // (les critères portent sur le texte, les propriétés et les dossiers
+  // descendants, que SQL ne peut pas exprimer simplement ici).
+  if (query.collectionId !== undefined && query.collectionId !== "") {
+    const collection = await db.smartCollection.findFirst({
+      where: { userId, id: query.collectionId },
+    });
+    if (!collection) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
+    const criteria = gaiaCollectionCriteriaSchema.safeParse(
+      safeJsonParse(collection.criteria),
+    ).success
+      ? (gaiaCollectionCriteriaSchema.parse(safeJsonParse(collection.criteria)) as KnowledgeCollectionCriteria)
+      : {};
+    const folderDescendants =
+      criteria.folderId != null
+        ? descendantIds(buildTree(folders), criteria.folderId, false)
+        : [];
+    const now = new Date();
+    const all = await db.note.findMany({ where: { userId, deletedAt: null } });
+    const filtered = all.filter(
+      (note) =>
+        memoryMatches(note, query, now) &&
+        matchCollectionCriteria(
+          {
+            folderId: note.folderId,
+            tagIds: parseJsonStringArray(note.tagIds),
+            mastery: note.mastery,
+            favorite: note.favorite,
+            title: note.title,
+            text: textOfBlocks(parseJsonBlocks(note.blocks)),
+            properties: parseJsonProperties(note.properties),
+          },
+          criteria,
+          folderDescendants,
+        ),
+    );
+    const sorted = [...filtered].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+    );
+    const total = sorted.length;
+    const pageNotes = sorted.slice((page - 1) * pageSize, page * pageSize);
+    return {
+      notes: pageNotes.map((note) => toRow(note, folders, tags)),
+      total,
+    };
+  }
 
   // Reference view: link detection needs block text — in-memory path
   // over the user's notes (same matching as before), then paginate.
@@ -828,6 +1104,9 @@ export async function createNote(
       blocks: JSON.stringify(blocks),
       cover: parsed.cover ?? null,
       wordGoal: parsed.wordGoal ?? null,
+      properties: parsed.properties
+        ? JSON.stringify(normalizeProperties(parsed.properties))
+        : "[]",
       createdAt: now,
       updatedAt: now,
       lastViewedAt: now,
@@ -863,7 +1142,8 @@ export async function updateNote(
     parsed.favorite !== undefined ||
     parsed.blocks !== undefined ||
     parsed.cover !== undefined ||
-    parsed.wordGoal !== undefined;
+    parsed.wordGoal !== undefined ||
+    parsed.properties !== undefined;
 
   if (!hasMeaningfulChange) {
     if (parsed.touchViewed === true) {
@@ -889,6 +1169,7 @@ export async function updateNote(
     blocks?: string;
     cover?: string | null;
     wordGoal?: number | null;
+    properties?: string;
     updatedAt: Date;
   } = { updatedAt: new Date() };
   if (parsed.title !== undefined) data.title = parsed.title.trim();
@@ -897,6 +1178,9 @@ export async function updateNote(
   if (parsed.favorite !== undefined) data.favorite = parsed.favorite;
   if (parsed.cover !== undefined) data.cover = parsed.cover;
   if (parsed.wordGoal !== undefined) data.wordGoal = parsed.wordGoal;
+  if (parsed.properties !== undefined) {
+    data.properties = JSON.stringify(normalizeProperties(parsed.properties));
+  }
   if (parsed.tagIds !== undefined) {
     const known = await loadTags(userId);
     const knownIds = new Set(known.map((t) => t.id));
@@ -1215,20 +1499,27 @@ export type GaiaMemoryGraphNode = {
   title: string;
   mastery: MasteryLevel;
   folderId: string | null;
+  /** Module 2 (K15) : aucune arête ne touche cette note. */
+  orphan: boolean;
 };
 
 export type GaiaMemoryGraphEdge = {
   from: string;
   to: string;
-  /** "ref" = a note links to another note; "tag" = two notes share a tag. */
-  kind: "ref" | "tag";
+  /** "ref" = a note links to another note; "tag" = two notes share a tag;
+   *  "relation" = a custom relation (Module 2, K08). */
+  kind: "ref" | "tag" | "relation";
   /** Tag name for "tag" edges (the shared tag). */
   tagName?: string;
+  /** Relation label for "relation" edges (e.g. "contradicts"). */
+  label?: string;
 };
 
 export type GaiaMemoryGraphResponse = {
   nodes: GaiaMemoryGraphNode[];
   edges: GaiaMemoryGraphEdge[];
+  /** Module 2 (K08) : distinct relation labels, for the legend/filter. */
+  relationTypes: string[];
 };
 
 /** Max tag edges in one response: a tag shared by many notes would
@@ -1266,6 +1557,7 @@ export async function getMemoryGraph(
     title: note.title,
     mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
     folderId: note.folderId,
+    orphan: true,
   }));
 
   const edges: GaiaMemoryGraphEdge[] = [];
@@ -1312,7 +1604,28 @@ export async function getMemoryGraph(
     if (tagEdges >= MAX_TAG_EDGES) break;
   }
 
-  return { nodes, edges };
+  // Module 2 (K08) : arêtes de relations personnalisées.
+  const relations = await db.noteRelation.findMany({ where: { userId } });
+  const relationTypes = [...new Set(relations.map((r) => r.type))].sort();
+  for (const rel of relations) {
+    if (!ids.has(rel.fromNoteId) || !ids.has(rel.toNoteId)) continue;
+    edges.push({
+      from: rel.fromNoteId,
+      to: rel.toNoteId,
+      kind: "relation",
+      label: rel.type,
+    });
+  }
+
+  // Une note orpheline n'a aucune arête (K15).
+  const touched = new Set<string>();
+  for (const e of edges) {
+    touched.add(e.from);
+    touched.add(e.to);
+  }
+  for (const node of nodes) node.orphan = !touched.has(node.id);
+
+  return { nodes, edges, relationTypes };
 }
 
 export type GaiaMemoryHeatmapDay = {
@@ -1651,7 +1964,14 @@ export async function createFolder(userId: string, input: unknown): Promise<Gaia
   if (folders.some((f) => nameKeyOf(f.name) === nameKeyOf(name))) {
     throw conflictError("FOLDER_EXISTS", "A folder with this name already exists.");
   }
-  const folder = await db.noteFolder.create({ data: { userId, name } });
+  // Module 2 (K05) : dossier imbriqué — le parent doit exister.
+  let parentId: string | null = null;
+  if (parsed.parentId !== undefined && parsed.parentId !== null) {
+    const parent = folders.find((f) => f.id === parsed.parentId);
+    if (!parent) throw FOLDER_NOT_FOUND();
+    parentId = parent.id;
+  }
+  const folder = await db.noteFolder.create({ data: { userId, name, parentId } });
   return { ...folder, noteCount: 0 };
 }
 
@@ -1675,7 +1995,28 @@ export async function updateFolder(
   ) {
     throw conflictError("FOLDER_EXISTS", "A folder with this name already exists.");
   }
-  const updated = await db.noteFolder.update({ where: { id: folder.id }, data: { name } });
+  // Module 2 (K05) : déplacer le dossier — jamais sous lui-même ni sous
+  // l'un de ses descendants (cycle impossible).
+  let parentId: string | null | undefined;
+  if (parsed.parentId !== undefined) {
+    if (parsed.parentId === null) {
+      parentId = null;
+    } else {
+      const parent = folders.find((f) => f.id === parsed.parentId);
+      if (!parent) throw FOLDER_NOT_FOUND();
+      if (
+        parent.id === folder.id ||
+        isDescendantOf(folders, parent.id, folder.id)
+      ) {
+        throw validationError("A folder cannot be moved under itself or one of its children.");
+      }
+      parentId = parent.id;
+    }
+  }
+  const updated = await db.noteFolder.update({
+    where: { id: folder.id },
+    data: { name, ...(parentId !== undefined ? { parentId } : {}) },
+  });
   const noteCount = await db.note.count({
     where: { userId, folderId: folder.id, deletedAt: null },
   });
@@ -1685,6 +2026,12 @@ export async function updateFolder(
 export async function deleteFolder(userId: string, folderId: string): Promise<{ ok: true }> {
   const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
   if (!folder) throw FOLDER_NOT_FOUND();
+  // Module 2 (K05) : les sous-dossiers remontent au parent du dossier
+  // supprimé (ou à la racine) ; les notes du dossier passent à la racine.
+  await db.noteFolder.updateMany({
+    where: { userId, parentId: folder.id },
+    data: { parentId: folder.parentId ?? null },
+  });
   await db.note.updateMany({
     where: { userId, folderId: folder.id },
     data: { folderId: null },
@@ -1727,8 +2074,103 @@ export async function createTag(userId: string, input: unknown): Promise<GaiaTag
       ).length,
     };
   }
-  const tag = await db.noteTag.create({ data: { userId, name } });
+  // Module 2 (K07) : tag hiérarchique + relations explicites.
+  let parentId: string | null = null;
+  if (parsed.parentId !== undefined && parsed.parentId !== null) {
+    const parent = tags.find((t) => t.id === parsed.parentId);
+    if (!parent) throw notFound("TAG_NOT_FOUND", "Tag not found.");
+    parentId = parent.id;
+  }
+  const relatedIds = (parsed.relatedIds ?? []).filter((id) =>
+    tags.some((t) => t.id === id),
+  );
+  const tag = await db.noteTag.create({
+    data: { userId, name, parentId, relatedIds: JSON.stringify(relatedIds) },
+  });
   return { ...tag, noteCount: 0 };
+}
+
+export async function updateTag(
+  userId: string,
+  tagId: string,
+  input: unknown,
+): Promise<GaiaTagDTO> {
+  const parsed = parseOrThrow(tagInputSchema, input);
+  const tag = await db.noteTag.findFirst({ where: { userId, id: tagId } });
+  if (!tag) throw notFound("TAG_NOT_FOUND", "Tag not found.");
+  const tags = await loadTags(userId);
+  const data: { name?: string; parentId?: string | null; relatedIds?: string } = {};
+  if (parsed.name !== undefined) {
+    const name = normalizeTagName(parsed.name);
+    if (name === "") {
+      throw validationError("The tag name is required.", [
+        { path: "name", message: "The tag name is required." },
+      ]);
+    }
+    if (tags.some((t) => t.id !== tag.id && nameKeyOf(t.name) === nameKeyOf(name))) {
+      throw conflictError("TAG_EXISTS", "A tag with this name already exists.");
+    }
+    data.name = name;
+  }
+  if (parsed.parentId !== undefined) {
+    if (parsed.parentId === null) {
+      data.parentId = null;
+    } else {
+      const parent = tags.find((t) => t.id === parsed.parentId);
+      if (!parent) throw notFound("TAG_NOT_FOUND", "Tag not found.");
+      if (parent.id === tag.id || isDescendantOf(tags, parent.id, tag.id)) {
+        throw validationError("A tag cannot be moved under itself or one of its children.");
+      }
+      data.parentId = parent.id;
+    }
+  }
+  if (parsed.relatedIds !== undefined) {
+    const known = new Set(tags.map((t) => t.id));
+    data.relatedIds = JSON.stringify(
+      parsed.relatedIds.filter((id) => id !== tag.id && known.has(id)),
+    );
+  }
+  const updated = await db.noteTag.update({ where: { id: tag.id }, data });
+  const notes = await db.note.findMany({ where: { userId, deletedAt: null } });
+  return {
+    ...updated,
+    noteCount: notes.filter((n) =>
+      parseJsonStringArray(n.tagIds).includes(updated.id),
+    ).length,
+  };
+}
+
+export async function deleteTag(userId: string, tagId: string): Promise<{ ok: true }> {
+  const tag = await db.noteTag.findFirst({ where: { userId, id: tagId } });
+  if (!tag) throw notFound("TAG_NOT_FOUND", "Tag not found.");
+  // Les enfants remontent à la racine, les relations vers ce tag sont
+  // retirées, et le tag est retiré des notes qui le portaient.
+  await db.noteTag.updateMany({
+    where: { userId, parentId: tag.id },
+    data: { parentId: null },
+  });
+  const others = await db.noteTag.findMany({ where: { userId } });
+  for (const other of others) {
+    const related = parseJsonStringArray(other.relatedIds).filter((id) => id !== tag.id);
+    if (related.length !== parseJsonStringArray(other.relatedIds).length) {
+      await db.noteTag.update({
+        where: { id: other.id },
+        data: { relatedIds: JSON.stringify(related) },
+      });
+    }
+  }
+  const notes = await db.note.findMany({ where: { userId } });
+  for (const note of notes) {
+    const tagIds = parseJsonStringArray(note.tagIds).filter((id) => id !== tag.id);
+    if (tagIds.length !== parseJsonStringArray(note.tagIds).length) {
+      await db.note.update({
+        where: { id: note.id },
+        data: { tagIds: JSON.stringify(tagIds) },
+      });
+    }
+  }
+  await db.noteTag.delete({ where: { id: tag.id } });
+  return { ok: true };
 }
 
 /* ── Modèles ─────────────────────────────────────────────────────────── */
@@ -1978,4 +2420,803 @@ export async function listLinkedNotes(
   id: string,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
   return listNotes(userId, { refKind: kind, refId: id });
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Module 2 — Knowledge Management System (K01–K17)
+   ══════════════════════════════════════════════════════════════════ */
+
+// ── Helpers Module 2 ──────────────────────────────────────────────────
+
+function relationToDTO(
+  rel: NoteRelation,
+  direction: "outgoing" | "incoming",
+  otherTitle: string,
+): GaiaNoteRelationDTO {
+  const otherNoteId = direction === "outgoing" ? rel.toNoteId : rel.fromNoteId;
+  return {
+    id: rel.id,
+    fromNoteId: rel.fromNoteId,
+    toNoteId: rel.toNoteId,
+    type: rel.type,
+    direction,
+    otherNoteId,
+    otherTitle,
+    createdAt: rel.createdAt.toISOString(),
+  };
+}
+
+async function loadRelations(userId: string): Promise<NoteRelation[]> {
+  return db.noteRelation.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Notes (id → title) for a set of ids, active only. */
+async function loadNoteTitles(
+  userId: string,
+  ids: string[],
+): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db.note.findMany({
+    where: { userId, id: { in: ids }, deletedAt: null },
+    select: { id: true, title: true },
+  });
+  return new Map(rows.map((r) => [r.id, r.title === "" ? "Untitled note" : r.title]));
+}
+
+// ── K08 — Relations personnalisées ────────────────────────────────────
+
+export async function listNoteRelations(
+  userId: string,
+  noteId: string,
+): Promise<{ relations: GaiaNoteRelationDTO[] }> {
+  const note = await findActiveNote(userId, noteId);
+  if (!note) throw NOTE_NOT_FOUND();
+  const relations = await loadRelations(userId);
+  const mine = relations.filter(
+    (r) => r.fromNoteId === noteId || r.toNoteId === noteId,
+  );
+  const otherIds = mine.map((r) =>
+    r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId,
+  );
+  const titles = await loadNoteTitles(userId, otherIds);
+  return {
+    relations: mine.map((r) =>
+      relationToDTO(
+        r,
+        r.fromNoteId === noteId ? "outgoing" : "incoming",
+        titles.get(r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId) ??
+          "Untitled note",
+      ),
+    ),
+  };
+}
+
+export async function createNoteRelation(
+  userId: string,
+  noteId: string,
+  input: unknown,
+): Promise<{ relation: GaiaNoteRelationDTO }> {
+  const parsed = parseOrThrow(relationInputSchema, input);
+  const from = await findActiveNote(userId, noteId);
+  if (!from) throw NOTE_NOT_FOUND();
+  const to = await findActiveNote(userId, parsed.toNoteId);
+  if (!to) throw NOTE_NOT_FOUND();
+  if (parsed.toNoteId === noteId) {
+    throw validationError("A note cannot relate to itself.");
+  }
+  const type = parsed.type.trim();
+  const existing = await db.noteRelation.findFirst({
+    where: { userId, fromNoteId: noteId, toNoteId: parsed.toNoteId, type },
+  });
+  if (existing) {
+    throw conflictError("RELATION_EXISTS", "This relation already exists.");
+  }
+  const rel = await db.noteRelation.create({
+    data: { userId, fromNoteId: noteId, toNoteId: parsed.toNoteId, type },
+  });
+  return {
+    relation: relationToDTO(rel, "outgoing", to.title === "" ? "Untitled note" : to.title),
+  };
+}
+
+export async function deleteNoteRelation(
+  userId: string,
+  noteId: string,
+  relationId: string,
+): Promise<{ ok: true }> {
+  const rel = await db.noteRelation.findFirst({
+    where: { userId, id: relationId },
+  });
+  if (!rel || (rel.fromNoteId !== noteId && rel.toNoteId !== noteId)) {
+    throw notFound("RELATION_NOT_FOUND", "Relation not found.");
+  }
+  await db.noteRelation.delete({ where: { id: rel.id } });
+  return { ok: true };
+}
+
+// ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
+
+export async function getNoteLinks(
+  userId: string,
+  noteId: string,
+): Promise<GaiaNoteLinksResponse> {
+  const note = await findActiveNote(userId, noteId);
+  if (!note) throw NOTE_NOT_FOUND();
+  const [folders, tags, relations, allNotes] = await Promise.all([
+    loadFolders(userId),
+    loadTags(userId),
+    loadRelations(userId),
+    db.note.findMany({ where: { userId, deletedAt: null } }),
+  ]);
+
+  // Outgoing: ref blocks (NOTE) + relations.
+  const outgoing: GaiaNoteLinkItem[] = [];
+  const seenOutgoing = new Set<string>();
+  for (const block of flattenBlocks(parseJsonBlocks(note.blocks))) {
+    if (block.type !== "ref" || block.ref?.kind !== "NOTE") continue;
+    const target = allNotes.find((n) => n.id === block.ref?.id);
+    if (!target || target.id === noteId || seenOutgoing.has(target.id)) continue;
+    seenOutgoing.add(target.id);
+    outgoing.push({
+      id: target.id,
+      title: target.title === "" ? "Untitled note" : target.title,
+      via: "ref",
+    });
+  }
+  const myRelations = relations.filter((r) => r.fromNoteId === noteId);
+  for (const rel of myRelations) {
+    const target = allNotes.find((n) => n.id === rel.toNoteId);
+    if (!target || seenOutgoing.has(target.id)) continue;
+    seenOutgoing.add(target.id);
+    outgoing.push({
+      id: target.id,
+      title: target.title === "" ? "Untitled note" : target.title,
+      via: "relation",
+      relationType: rel.type,
+    });
+  }
+
+  // Backlinks: every other note with a ref block to this note.
+  const backlinks = allNotes
+    .filter(
+      (n) =>
+        n.id !== noteId &&
+        flattenBlocks(parseJsonBlocks(n.blocks)).some(
+          (b) => b.type === "ref" && b.ref?.kind === "NOTE" && b.ref.id === noteId,
+        ),
+    )
+    .map((n) => toRow(n, folders, tags));
+
+  // Unlinked mentions: the title appears in another note's text (title or
+  // body) without any link to this note. Short titles (< 3 chars) are
+  // skipped — they would match almost everything.
+  const unlinkedMentions: GaiaUnlinkedMention[] = [];
+  const title = note.title.trim();
+  if (title.length >= 3) {
+    const needle = title.toLowerCase();
+    const linkedIds = new Set([
+      ...backlinks.map((b) => b.id),
+      ...outgoing.map((o) => o.id),
+    ]);
+    for (const other of allNotes) {
+      if (other.id === noteId || linkedIds.has(other.id)) continue;
+      const blocks = parseJsonBlocks(other.blocks);
+      const hayTitle = other.title.toLowerCase();
+      const hayText = textOfBlocks(blocks).toLowerCase();
+      if (!hayTitle.includes(needle) && !hayText.includes(needle)) continue;
+      unlinkedMentions.push({
+        id: other.id,
+        title: other.title === "" ? "Untitled note" : other.title,
+        snippet: hayText.includes(needle)
+          ? searchSnippet(blocks, needle)
+          : excerptOf(blocks),
+      });
+      if (unlinkedMentions.length >= 20) break;
+    }
+  }
+
+  // Relations (both directions) with the other note's title.
+  const titles = await loadNoteTitles(
+    userId,
+    relations
+      .filter((r) => r.fromNoteId === noteId || r.toNoteId === noteId)
+      .map((r) => (r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId)),
+  );
+  const relationDTOs = relations
+    .filter((r) => r.fromNoteId === noteId || r.toNoteId === noteId)
+    .map((r) =>
+      relationToDTO(
+        r,
+        r.fromNoteId === noteId ? "outgoing" : "incoming",
+        titles.get(r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId) ??
+          "Untitled note",
+      ),
+    );
+
+  return { outgoing, backlinks, unlinkedMentions, relations: relationDTOs };
+}
+
+// ── K14 — Suggestions de liens ────────────────────────────────────────
+
+export async function getLinkSuggestions(
+  userId: string,
+  noteId: string,
+): Promise<{ suggestions: GaiaLinkSuggestion[] }> {
+  const note = await findActiveNote(userId, noteId);
+  if (!note) throw NOTE_NOT_FOUND();
+  const [links, allNotes] = await Promise.all([
+    getNoteLinks(userId, noteId),
+    db.note.findMany({ where: { userId, deletedAt: null } }),
+  ]);
+  const linkedIds = new Set([
+    noteId,
+    ...links.outgoing.map((o) => o.id),
+    ...links.backlinks.map((b) => b.id),
+  ]);
+  const sourceBlocks = parseJsonBlocks(note.blocks);
+  const scored = suggestLinks(
+    {
+      title: note.title,
+      text: textOfBlocks(sourceBlocks),
+      tagIds: parseJsonStringArray(note.tagIds),
+    },
+    allNotes
+      .filter((n) => !linkedIds.has(n.id))
+      .map((n) => ({
+        id: n.id,
+        title: n.title,
+        text: textOfBlocks(parseJsonBlocks(n.blocks)),
+        tagIds: parseJsonStringArray(n.tagIds),
+      })),
+    8,
+  );
+  const titles = new Map(allNotes.map((n) => [n.id, n.title]));
+  return {
+    suggestions: scored.map((s) => ({
+      id: s.id,
+      title: titles.get(s.id) === "" ? "Untitled note" : (titles.get(s.id) ?? "Untitled note"),
+      score: s.score,
+      sharedWords: s.sharedWords,
+    })),
+  };
+}
+
+// ── K15 — Notes orphelines ─────────────────────────────────────────────
+
+export async function getOrphanNotes(
+  userId: string,
+): Promise<{ notes: GaiaNoteRow[]; total: number }> {
+  const [folders, tags, relations, allNotes] = await Promise.all([
+    loadFolders(userId),
+    loadTags(userId),
+    loadRelations(userId),
+    db.note.findMany({ where: { userId, deletedAt: null } }),
+  ]);
+  const outgoing = new Map<string, Set<string>>();
+  const incoming = new Set<string>();
+  const tagGroups = new Map<string, string[]>();
+  for (const note of allNotes) {
+    const targets = new Set<string>();
+    for (const block of flattenBlocks(parseJsonBlocks(note.blocks))) {
+      if (block.type === "ref" && block.ref?.kind === "NOTE" && block.ref.id !== note.id) {
+        targets.add(block.ref.id);
+        incoming.add(block.ref.id);
+      }
+    }
+    outgoing.set(note.id, targets);
+    for (const tagId of parseJsonStringArray(note.tagIds)) {
+      const list = tagGroups.get(tagId) ?? [];
+      list.push(note.id);
+      tagGroups.set(tagId, list);
+    }
+  }
+  const relatedIds = new Set<string>();
+  for (const rel of relations) {
+    relatedIds.add(rel.fromNoteId);
+    relatedIds.add(rel.toNoteId);
+  }
+  const sharedTagIds = new Set<string>();
+  for (const members of tagGroups.values()) {
+    if (members.length >= 2) {
+      for (const id of members) sharedTagIds.add(id);
+    }
+  }
+  const orphans = allNotes.filter(
+    (note) =>
+      (outgoing.get(note.id)?.size ?? 0) === 0 &&
+      !incoming.has(note.id) &&
+      !relatedIds.has(note.id) &&
+      !sharedTagIds.has(note.id),
+  );
+  orphans.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  const total = orphans.length;
+  return {
+    notes: orphans.slice(0, 50).map((n) => toRow(n, folders, tags)),
+    total,
+  };
+}
+
+// ── K16 — Timeline des connaissances ──────────────────────────────────
+
+export async function getKnowledgeTimeline(
+  userId: string,
+): Promise<{ months: GaiaKnowledgeTimelineMonth[] }> {
+  const [notes, relations] = await Promise.all([
+    db.note.findMany({
+      where: { userId, deletedAt: null },
+      select: { id: true, title: true, mastery: true, createdAt: true, updatedAt: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.noteRelation.findMany({ where: { userId }, select: { createdAt: true } }),
+  ]);
+  const monthKey = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const byMonth = new Map<string, GaiaKnowledgeTimelineMonth>();
+  const ensure = (key: string): GaiaKnowledgeTimelineMonth => {
+    let m = byMonth.get(key);
+    if (!m) {
+      m = { month: key, created: 0, edited: 0, relations: 0, notes: [] };
+      byMonth.set(key, m);
+    }
+    return m;
+  };
+  for (const note of notes) {
+    const created = ensure(monthKey(note.createdAt));
+    created.created += 1;
+    if (created.notes.length < 10) {
+      created.notes.push({
+        id: note.id,
+        title: note.title,
+        mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
+        createdAt: note.createdAt.toISOString(),
+      });
+    }
+    const updatedKey = monthKey(note.updatedAt);
+    if (updatedKey !== monthKey(note.createdAt)) {
+      ensure(updatedKey).edited += 1;
+    }
+  }
+  for (const rel of relations) {
+    ensure(monthKey(rel.createdAt)).relations += 1;
+  }
+  const months = [...byMonth.values()].sort((a, b) => b.month.localeCompare(a.month));
+  return { months: months.slice(0, 12) };
+}
+
+// ── K06 — Collections dynamiques ──────────────────────────────────────
+
+function collectionToDTO(
+  row: SmartCollection,
+  noteCount: number,
+): GaiaSmartCollectionDTO {
+  const criteria = gaiaCollectionCriteriaSchema.safeParse(
+    safeJsonParse(row.criteria),
+  ).success
+    ? (gaiaCollectionCriteriaSchema.parse(
+        safeJsonParse(row.criteria),
+      ) as KnowledgeCollectionCriteria)
+    : {};
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon,
+    criteria,
+    noteCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+async function countCollectionNotes(
+  userId: string,
+  criteria: KnowledgeCollectionCriteria,
+): Promise<number> {
+  const [folders, allNotes] = await Promise.all([
+    loadFolders(userId),
+    db.note.findMany({ where: { userId, deletedAt: null } }),
+  ]);
+  const folderDescendants =
+    criteria.folderId != null
+      ? descendantIds(buildTree(folders), criteria.folderId, false)
+      : [];
+  return allNotes.filter((note) =>
+    matchCollectionCriteria(
+      {
+        folderId: note.folderId,
+        tagIds: parseJsonStringArray(note.tagIds),
+        mastery: note.mastery,
+        favorite: note.favorite,
+        title: note.title,
+        text: textOfBlocks(parseJsonBlocks(note.blocks)),
+        properties: parseJsonProperties(note.properties),
+      },
+      criteria,
+      folderDescendants,
+    ),
+  ).length;
+}
+
+export async function listCollections(
+  userId: string,
+): Promise<{ collections: GaiaSmartCollectionDTO[] }> {
+  const rows = await db.smartCollection.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+  });
+  const collections: GaiaSmartCollectionDTO[] = [];
+  for (const row of rows) {
+    const criteria = gaiaCollectionCriteriaSchema.safeParse(
+      safeJsonParse(row.criteria),
+    ).success
+      ? (gaiaCollectionCriteriaSchema.parse(
+          safeJsonParse(row.criteria),
+        ) as KnowledgeCollectionCriteria)
+      : {};
+    collections.push(collectionToDTO(row, await countCollectionNotes(userId, criteria)));
+  }
+  return { collections };
+}
+
+export async function createCollection(
+  userId: string,
+  input: unknown,
+): Promise<{ collection: GaiaSmartCollectionDTO }> {
+  const parsed = parseOrThrow(collectionInputSchema, input);
+  if (parsed.criteria?.folderId) {
+    const folder = await db.noteFolder.findFirst({
+      where: { userId, id: parsed.criteria.folderId },
+    });
+    if (!folder) throw FOLDER_NOT_FOUND();
+  }
+  const row = await db.smartCollection.create({
+    data: {
+      userId,
+      name: parsed.name.trim(),
+      icon: parsed.icon ?? "📁",
+      criteria: JSON.stringify(parsed.criteria ?? {}),
+    },
+  });
+  return { collection: collectionToDTO(row, 0) };
+}
+
+export async function updateCollection(
+  userId: string,
+  collectionId: string,
+  input: unknown,
+): Promise<{ collection: GaiaSmartCollectionDTO }> {
+  const parsed = parseOrThrow(collectionInputSchema, input);
+  const row = await db.smartCollection.findFirst({ where: { userId, id: collectionId } });
+  if (!row) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
+  if (parsed.criteria?.folderId) {
+    const folder = await db.noteFolder.findFirst({
+      where: { userId, id: parsed.criteria.folderId },
+    });
+    if (!folder) throw FOLDER_NOT_FOUND();
+  }
+  const updated = await db.smartCollection.update({
+    where: { id: row.id },
+    data: {
+      name: parsed.name.trim(),
+      icon: parsed.icon ?? row.icon,
+      criteria: JSON.stringify(parsed.criteria ?? {}),
+    },
+  });
+  const criteria = gaiaCollectionCriteriaSchema.parse(
+    safeJsonParse(updated.criteria),
+  ) as KnowledgeCollectionCriteria;
+  return {
+    collection: collectionToDTO(updated, await countCollectionNotes(userId, criteria)),
+  };
+}
+
+export async function deleteCollection(
+  userId: string,
+  collectionId: string,
+): Promise<{ ok: true }> {
+  const row = await db.smartCollection.findFirst({ where: { userId, id: collectionId } });
+  if (!row) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
+  await db.smartCollection.delete({ where: { id: row.id } });
+  return { ok: true };
+}
+
+export async function listCollectionNotes(
+  userId: string,
+  collectionId: string,
+  page = 1,
+): Promise<{ notes: GaiaNoteRow[]; total: number; collection: GaiaSmartCollectionDTO }> {
+  const { notes, total } = await listNotes(userId, {
+    collectionId,
+    page,
+    pageSize: 50,
+  });
+  const row = await db.smartCollection.findFirst({ where: { userId, id: collectionId } });
+  if (!row) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
+  const criteria = gaiaCollectionCriteriaSchema.safeParse(
+    safeJsonParse(row.criteria),
+  ).success
+    ? (gaiaCollectionCriteriaSchema.parse(
+        safeJsonParse(row.criteria),
+      ) as KnowledgeCollectionCriteria)
+    : {};
+  return {
+    notes,
+    total,
+    collection: collectionToDTO(row, total),
+  };
+}
+
+// ── K09 — Canvas de connaissances ─────────────────────────────────────
+
+function canvasToDTO(row: KnowledgeCanvas): GaiaCanvasDTO {
+  const parsed = safeJsonParse(row.items);
+  const items: GaiaCanvasItemDTO[] = [];
+  if (Array.isArray(parsed)) {
+    for (const item of parsed) {
+      const checked = canvasItemSchema.safeParse(item);
+      if (checked.success) items.push(checked.data);
+    }
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    items,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function listCanvases(
+  userId: string,
+): Promise<{ canvases: GaiaCanvasDTO[] }> {
+  const rows = await db.knowledgeCanvas.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+  });
+  return { canvases: rows.map(canvasToDTO) };
+}
+
+export async function getCanvas(
+  userId: string,
+  canvasId: string,
+): Promise<{ canvas: GaiaCanvasDTO }> {
+  const row = await db.knowledgeCanvas.findFirst({ where: { userId, id: canvasId } });
+  if (!row) throw notFound("CANVAS_NOT_FOUND", "Canvas not found.");
+  return { canvas: canvasToDTO(row) };
+}
+
+export async function createCanvas(
+  userId: string,
+  input: unknown,
+): Promise<{ canvas: GaiaCanvasDTO }> {
+  const parsed = parseOrThrow(canvasInputSchema, input);
+  const row = await db.knowledgeCanvas.create({
+    data: {
+      userId,
+      name: parsed.name.trim(),
+      items: JSON.stringify(parsed.items ?? []),
+    },
+  });
+  return { canvas: canvasToDTO(row) };
+}
+
+export async function updateCanvas(
+  userId: string,
+  canvasId: string,
+  input: unknown,
+): Promise<{ canvas: GaiaCanvasDTO }> {
+  const parsed = parseOrThrow(canvasInputSchema, input);
+  const row = await db.knowledgeCanvas.findFirst({ where: { userId, id: canvasId } });
+  if (!row) throw notFound("CANVAS_NOT_FOUND", "Canvas not found.");
+  // Les cartes ne peuvent référencer que des notes existantes et actives.
+  let items = parsed.items;
+  if (items !== undefined) {
+    const ids = [...new Set(items.map((i) => i.noteId))];
+    const existing = await db.note.findMany({
+      where: { userId, id: { in: ids }, deletedAt: null },
+      select: { id: true },
+    });
+    const known = new Set(existing.map((n) => n.id));
+    items = items.filter((i) => known.has(i.noteId));
+  }
+  const updated = await db.knowledgeCanvas.update({
+    where: { id: row.id },
+    data: {
+      name: parsed.name.trim(),
+      ...(items !== undefined ? { items: JSON.stringify(items) } : {}),
+    },
+  });
+  return { canvas: canvasToDTO(updated) };
+}
+
+export async function deleteCanvas(
+  userId: string,
+  canvasId: string,
+): Promise<{ ok: true }> {
+  const row = await db.knowledgeCanvas.findFirst({ where: { userId, id: canvasId } });
+  if (!row) throw notFound("CANVAS_NOT_FOUND", "Canvas not found.");
+  await db.knowledgeCanvas.delete({ where: { id: row.id } });
+  return { ok: true };
+}
+
+// ── K12 — Inbox ───────────────────────────────────────────────────────
+
+function inboxToDTO(row: InboxItem): GaiaInboxItemDTO {
+  return {
+    id: row.id,
+    text: row.text,
+    doneAt: row.doneAt?.toISOString() ?? null,
+    noteId: row.noteId,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export async function listInbox(
+  userId: string,
+): Promise<{ open: GaiaInboxItemDTO[]; done: GaiaInboxItemDTO[] }> {
+  const rows = await db.inboxItem.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+  return {
+    open: rows.filter((r) => r.doneAt === null).map(inboxToDTO),
+    done: rows.filter((r) => r.doneAt !== null).map(inboxToDTO),
+  };
+}
+
+export async function createInboxItem(
+  userId: string,
+  input: unknown,
+): Promise<{ item: GaiaInboxItemDTO }> {
+  const parsed = parseOrThrow(inboxInputSchema, input);
+  const row = await db.inboxItem.create({
+    data: { userId, text: parsed.text.trim() },
+  });
+  return { item: inboxToDTO(row) };
+}
+
+export async function toggleInboxItem(
+  userId: string,
+  itemId: string,
+  done: boolean,
+): Promise<{ item: GaiaInboxItemDTO }> {
+  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
+  if (!row) throw notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found.");
+  const updated = await db.inboxItem.update({
+    where: { id: row.id },
+    data: { doneAt: done ? new Date() : null },
+  });
+  return { item: inboxToDTO(updated) };
+}
+
+export async function deleteInboxItem(
+  userId: string,
+  itemId: string,
+): Promise<{ ok: true }> {
+  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
+  if (!row) throw notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found.");
+  await db.inboxItem.delete({ where: { id: row.id } });
+  return { ok: true };
+}
+
+export async function convertInboxItem(
+  userId: string,
+  itemId: string,
+): Promise<{ note: GaiaNoteResponse["note"]; item: GaiaInboxItemDTO }> {
+  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
+  if (!row) throw notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found.");
+  if (row.noteId) {
+    const note = await findActiveNote(userId, row.noteId);
+    if (note) {
+      const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
+      return { note: toDTO(note), item: inboxToDTO(row) };
+    }
+  }
+  const lines = row.text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  const title = (lines[0] ?? "").slice(0, 200);
+  const blocks: GaiaBlock[] = lines.slice(0, 50).map((line) => ({
+    id: newBlockId(),
+    type: "paragraph",
+    text: line,
+  }));
+  if (blocks.length === 0) blocks.push(emptyParagraphBlock());
+  const created = await createNote(userId, { title, blocks });
+  const updated = await db.inboxItem.update({
+    where: { id: row.id },
+    data: { noteId: created.note.id, doneAt: new Date() },
+  });
+  return { note: created.note, item: inboxToDTO(updated) };
+}
+
+// ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
+
+async function findOrCreateFolder(userId: string, name: string): Promise<NoteFolder> {
+  const existing = await db.noteFolder.findFirst({ where: { userId, name } });
+  if (existing) return existing;
+  return db.noteFolder.create({ data: { userId, name, parentId: null } });
+}
+
+export async function getOrCreateDailyNote(
+  userId: string,
+): Promise<GaiaNoteResponse> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  });
+  const tz = user?.timezone ?? "UTC";
+  const now = new Date();
+  const title = dailyNoteTitle(now, tz);
+  const folder = await findOrCreateFolder(userId, "Daily Notes");
+  const existing = await db.note.findFirst({
+    where: { userId, folderId: folder.id, title, deletedAt: null },
+  });
+  if (existing) {
+    const touched = await db.note.update({
+      where: { id: existing.id },
+      data: { lastViewedAt: new Date() },
+    });
+    const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
+    return noteResponse(userId, touched, folders, tags);
+  }
+  const longDate = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(now);
+  const blocks: GaiaBlock[] = [
+    { id: newBlockId(), type: "h1", text: longDate },
+    { id: newBlockId(), type: "h2", text: "Tasks" },
+    { id: newBlockId(), type: "todo", text: "" },
+    { id: newBlockId(), type: "h2", text: "Notes" },
+    { id: newBlockId(), type: "paragraph", text: "" },
+  ];
+  return createNote(userId, { title, folderId: folder.id, blocks });
+}
+
+export async function getOrCreateWeeklyNote(
+  userId: string,
+): Promise<GaiaNoteResponse> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  });
+  const tz = user?.timezone ?? "UTC";
+  const now = new Date();
+  const title = weeklyNoteTitle(now);
+  const folder = await findOrCreateFolder(userId, "Weekly Notes");
+  const existing = await db.note.findFirst({
+    where: { userId, folderId: folder.id, title, deletedAt: null },
+  });
+  if (existing) {
+    const touched = await db.note.update({
+      where: { id: existing.id },
+      data: { lastViewedAt: new Date() },
+    });
+    const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
+    return noteResponse(userId, touched, folders, tags);
+  }
+  const monday = weekStart(now);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    month: "short",
+    day: "numeric",
+  });
+  const range = `${fmt.format(monday)} – ${fmt.format(sunday)}, ${monday.getFullYear()}`;
+  const blocks: GaiaBlock[] = [
+    { id: newBlockId(), type: "h1", text: title },
+    { id: newBlockId(), type: "paragraph", text: range },
+    { id: newBlockId(), type: "h2", text: "Goals" },
+    { id: newBlockId(), type: "todo", text: "" },
+    { id: newBlockId(), type: "h2", text: "Review" },
+    { id: newBlockId(), type: "paragraph", text: "" },
+    { id: newBlockId(), type: "h2", text: "Notes" },
+    { id: newBlockId(), type: "paragraph", text: "" },
+  ];
+  return createNote(userId, { title, folderId: folder.id, blocks });
 }

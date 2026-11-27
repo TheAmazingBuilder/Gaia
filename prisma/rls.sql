@@ -134,3 +134,104 @@ DROP POLICY IF EXISTS gaia_versions_delete ON gaia_versions;
 CREATE POLICY gaia_versions_delete ON gaia_versions
   FOR DELETE
   USING (user_id = auth.uid()::text);
+
+-- Module 2 — Knowledge Management System (K06, K08, K09, K12)
+-- ═════════════════════════════════════════════════════════════════════════════
+-- Mêmes 4 policies par table (SELECT / INSERT / UPDATE / DELETE),
+-- scoping user_id = auth.uid()::text. Appliquer après `prisma db push`.
+
+-- gaia_note_relations
+ALTER TABLE gaia_note_relations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_note_relations_select ON gaia_note_relations;
+CREATE POLICY gaia_note_relations_select ON gaia_note_relations
+  FOR SELECT
+  USING (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_note_relations_insert ON gaia_note_relations;
+CREATE POLICY gaia_note_relations_insert ON gaia_note_relations
+  FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_note_relations_update ON gaia_note_relations;
+CREATE POLICY gaia_note_relations_update ON gaia_note_relations
+  FOR UPDATE
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_note_relations_delete ON gaia_note_relations;
+CREATE POLICY gaia_note_relations_delete ON gaia_note_relations
+  FOR DELETE
+  USING (user_id = auth.uid()::text);
+
+-- gaia_smart_collections
+ALTER TABLE gaia_smart_collections ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_smart_collections_select ON gaia_smart_collections;
+CREATE POLICY gaia_smart_collections_select ON gaia_smart_collections
+  FOR SELECT
+  USING (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_smart_collections_insert ON gaia_smart_collections;
+CREATE POLICY gaia_smart_collections_insert ON gaia_smart_collections
+  FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_smart_collections_update ON gaia_smart_collections;
+CREATE POLICY gaia_smart_collections_update ON gaia_smart_collections
+  FOR UPDATE
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_smart_collections_delete ON gaia_smart_collections;
+CREATE POLICY gaia_smart_collections_delete ON gaia_smart_collections
+  FOR DELETE
+  USING (user_id = auth.uid()::text);
+
+-- gaia_knowledge_canvases
+ALTER TABLE gaia_knowledge_canvases ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_knowledge_canvases_select ON gaia_knowledge_canvases;
+CREATE POLICY gaia_knowledge_canvases_select ON gaia_knowledge_canvases
+  FOR SELECT
+  USING (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_knowledge_canvases_insert ON gaia_knowledge_canvases;
+CREATE POLICY gaia_knowledge_canvases_insert ON gaia_knowledge_canvases
+  FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_knowledge_canvases_update ON gaia_knowledge_canvases;
+CREATE POLICY gaia_knowledge_canvases_update ON gaia_knowledge_canvases
+  FOR UPDATE
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_knowledge_canvases_delete ON gaia_knowledge_canvases;
+CREATE POLICY gaia_knowledge_canvases_delete ON gaia_knowledge_canvases
+  FOR DELETE
+  USING (user_id = auth.uid()::text);
+
+-- gaia_inbox_items
+ALTER TABLE gaia_inbox_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS gaia_inbox_items_select ON gaia_inbox_items;
+CREATE POLICY gaia_inbox_items_select ON gaia_inbox_items
+  FOR SELECT
+  USING (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_inbox_items_insert ON gaia_inbox_items;
+CREATE POLICY gaia_inbox_items_insert ON gaia_inbox_items
+  FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_inbox_items_update ON gaia_inbox_items;
+CREATE POLICY gaia_inbox_items_update ON gaia_inbox_items
+  FOR UPDATE
+  USING (user_id = auth.uid()::text)
+  WITH CHECK (user_id = auth.uid()::text);
+
+DROP POLICY IF EXISTS gaia_inbox_items_delete ON gaia_inbox_items;
+CREATE POLICY gaia_inbox_items_delete ON gaia_inbox_items
+  FOR DELETE
+  USING (user_id = auth.uid()::text);

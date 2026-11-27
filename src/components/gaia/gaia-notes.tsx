@@ -11,6 +11,8 @@
  */
 import * as React from "react";
 import {
+  CalendarDays,
+  CalendarRange,
   Copy,
   FolderInput,
   Grid2x2,
@@ -20,6 +22,7 @@ import {
   Search,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
@@ -57,7 +60,10 @@ import {
   parseGaiaCover,
   MasteryBadge,
   TagChip,
+  useCreateGaiaDailyNote,
+  useCreateGaiaWeeklyNote,
   useDuplicateGaiaNote,
+  useGaiaCollections,
   useGaiaFolders,
   useGaiaNotes,
   useGaiaTags,
@@ -236,6 +242,7 @@ export function NotesBrowser({
 }) {
   const t = useTranslations();
   const tr: GaiaT = (key) => t(key);
+  const { toast } = useToast();
   const [layout, setLayout] = React.useState<"list" | "grid">("list");
   const [moveTarget, setMoveTarget] = React.useState<GaiaNoteRow | null>(null);
 
@@ -256,7 +263,7 @@ export function NotesBrowser({
   // the browser grows the page instead of fetching the whole workspace.
   // Any filter change resets to the first page.
   const [limit, setLimit] = React.useState(50);
-  const filterKey = [params.view, params.folderId, params.tagId, params.q, params.sort].join("|");
+  const filterKey = [params.view, params.folderId, params.tagId, params.q, params.sort, params.collectionId ?? ""].join("|");
   const [lastFilterKey, setLastFilterKey] = React.useState(filterKey);
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey);
@@ -265,9 +272,26 @@ export function NotesBrowser({
 
   const notesQuery = useGaiaNotes({ ...params, pageSize: limit });
   const tagsQuery = useGaiaTags();
+  const collectionsQuery = useGaiaCollections();
+  const createDailyNote = useCreateGaiaDailyNote();
+  const createWeeklyNote = useCreateGaiaWeeklyNote();
   const notes = notesQuery.data?.notes ?? [];
   const total = notesQuery.data?.total ?? 0;
   const tags = (tagsQuery.data?.tags ?? []).filter((tag) => tag.noteCount > 0);
+  // Module 2 (K06/K10/K11) : bannière de collection + notes du jour/semaine.
+  const activeCollection = params.collectionId
+    ? (collectionsQuery.data?.collections ?? []).find((c) => c.id === params.collectionId)
+    : undefined;
+  const openPeriodicNote = (kind: "daily" | "weekly") => {
+    const run =
+      kind === "daily"
+        ? createDailyNote.mutateAsync()
+        : createWeeklyNote.mutateAsync();
+    void run.then(
+      (res) => onOpenNote(res.note.id),
+      (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+    );
+  };
 
   return (
     <div data-testid={testid ?? "gaia-notes-panel"} className="space-y-3">
@@ -333,7 +357,54 @@ export function NotesBrowser({
           <Plus className="size-4" aria-hidden="true" />
           {t("gaia.notes.newNote")}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          title={t("gaia.notes.dailyNoteHint")}
+          disabled={createDailyNote.isPending}
+          onClick={() => openPeriodicNote("daily")}
+        >
+          <CalendarDays className="size-4" aria-hidden="true" />
+          {t("gaia.notes.dailyNote")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          title={t("gaia.notes.weeklyNoteHint")}
+          disabled={createWeeklyNote.isPending}
+          onClick={() => openPeriodicNote("weekly")}
+        >
+          <CalendarRange className="size-4" aria-hidden="true" />
+          {t("gaia.notes.weeklyNote")}
+        </Button>
       </div>
+
+      {activeCollection ? (
+        <div
+          data-testid="gaia-collection-banner"
+          className="flex items-center gap-2 rounded-lg border border-brand-coral/30 bg-brand-coral/10 px-3 py-2"
+        >
+          <span className="text-base leading-none" aria-hidden="true">
+            {activeCollection.icon}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+            {activeCollection.name}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {total} {total === 1 ? t("gaia.shared.noteOne") : t("gaia.shared.noteMany")}
+          </span>
+          <button
+            type="button"
+            aria-label={t("gaia.collections.clearFilter")}
+            onClick={() => onParamsChange({ collectionId: "" })}
+            className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
 
       {showTagFilter && tags.length > 0 ? (
         <div data-testid="gaia-tag-filter" className="flex flex-wrap gap-1.5" aria-label={t("gaia.shared.filterBy")}>

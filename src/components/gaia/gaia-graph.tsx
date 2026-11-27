@@ -73,6 +73,7 @@ const MASTERY_HEX: Record<MasteryLevel, string> = {
 type MemoryNodeData = {
   title: string;
   mastery: MasteryLevel;
+  orphan: boolean;
 };
 
 type MemoryNodeType = Node<MemoryNodeData, "memory">;
@@ -108,7 +109,7 @@ function MemoryNode({ data, selected }: NodeProps<MemoryNodeType>) {
     <div
       className={`flex max-w-56 items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm ${
         selected ? "ring-2 ring-brand-coral" : meta.chip
-      }`}
+      } ${data.orphan ? "border-dashed opacity-80" : ""}`}
     >
       <Handle
         type="target"
@@ -177,6 +178,8 @@ export function GraphPanel({
     mastered: false,
   });
   const [showTagLinks, setShowTagLinks] = React.useState(true);
+  // Module 2 (K08) : afficher les relations personnalisées.
+  const [showRelationLinks, setShowRelationLinks] = React.useState(true);
   const [openMonths, setOpenMonths] = React.useState<Record<string, boolean>>({});
 
   const graph = graphQuery.data;
@@ -190,10 +193,12 @@ export function GraphPanel({
       (e) =>
         visibleIds.has(e.from) &&
         visibleIds.has(e.to) &&
-        (e.kind === "ref" || showTagLinks),
+        (e.kind === "ref" ||
+          (e.kind === "tag" && showTagLinks) ||
+          (e.kind === "relation" && showRelationLinks)),
     );
     return { nodes, edges };
-  }, [graph, hiddenMastery, showTagLinks]);
+  }, [graph, hiddenMastery, showTagLinks, showRelationLinks]);
 
   const positions = React.useMemo(
     () => layoutGraph(nodesData.nodes, nodesData.edges),
@@ -210,7 +215,7 @@ export function GraphPanel({
           id: n.id,
           type: "memory",
           position: pos,
-          data: { title: n.title, mastery: n.mastery },
+          data: { title: n.title, mastery: n.mastery, orphan: n.orphan },
           ariaLabel: `${n.title === "" ? t("gaia.shared.untitledNote") : n.title} — ${t(`gaia.memory.levels.${n.mastery}`)}`,
           selected: q !== "" && matches,
           style: q === "" || matches ? undefined : { opacity: 0.25 },
@@ -228,8 +233,11 @@ export function GraphPanel({
         style:
           e.kind === "tag"
             ? { stroke: "#94a3b8", strokeWidth: 1, strokeDasharray: "5 4" }
-            : { stroke: "#22D3EE", strokeWidth: 1.5 },
-        label: e.kind === "tag" ? e.tagName : undefined,
+            : e.kind === "relation"
+              ? { stroke: "#FF6B5B", strokeWidth: 1.5 }
+              : { stroke: "#22D3EE", strokeWidth: 1.5 },
+        label:
+          e.kind === "tag" ? e.tagName : e.kind === "relation" ? e.label : undefined,
       })),
     [nodesData],
   );
@@ -245,6 +253,8 @@ export function GraphPanel({
 
   const refEdgeCount = nodesData.edges.filter((e) => e.kind === "ref").length;
   const tagEdgeCount = nodesData.edges.filter((e) => e.kind === "tag").length;
+  const relationEdgeCount = nodesData.edges.filter((e) => e.kind === "relation").length;
+  const orphanCount = nodesData.nodes.filter((n) => n.orphan).length;
   const matchCount = q === "" ? null : flowNodes.filter((n) => n.selected).length;
   // Refit when the visible graph changes structurally (not on search typing).
   const fitSignature = [
@@ -252,6 +262,7 @@ export function GraphPanel({
     nodesData.edges.length,
     MASTERY_LEVELS.map((l) => (hiddenMastery[l] ? "0" : "1")).join(""),
     showTagLinks ? "1" : "0",
+    showRelationLinks ? "1" : "0",
   ].join("|");
 
   if (graphQuery.isLoading || statsQuery.isLoading) {
@@ -370,6 +381,15 @@ export function GraphPanel({
             />
             {t("gaia.graph.showTagLinks")}
           </label>
+          <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={showRelationLinks}
+              onChange={(e) => setShowRelationLinks(e.target.checked)}
+              className="size-4 accent-brand-cyan"
+            />
+            {t("gaia.graph.showRelationLinks")}
+          </label>
         </div>
         <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
@@ -392,6 +412,13 @@ export function GraphPanel({
             </svg>
             {t("gaia.graph.tagLinks", { count: tagEdgeCount })}
           </span>
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="20" height="6" aria-hidden="true">
+              <line x1="0" y1="3" x2="20" y2="3" stroke="#FF6B5B" strokeWidth="2" />
+            </svg>
+            {t("gaia.graph.relationLinks", { count: relationEdgeCount })}
+          </span>
+          <span>{t("gaia.graph.orphans", { count: orphanCount })}</span>
           <span>{t("gaia.graph.graphHint")}</span>
         </p>
 

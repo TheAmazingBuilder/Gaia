@@ -45,11 +45,16 @@ model User {
   authSessions AuthSession[]
 
   // ── Gaïa — workspace de notes ──
-  gaiaNotes     Note[]
-  gaiaFolders   NoteFolder[]
-  gaiaTags      NoteTag[]
-  gaiaTemplates NoteTemplate[]
-  gaiaVersions  NoteVersion[]
+  gaiaNotes       Note[]
+  gaiaFolders     NoteFolder[]
+  gaiaTags        NoteTag[]
+  gaiaTemplates   NoteTemplate[]
+  gaiaVersions    NoteVersion[]
+  // Module 2 — Knowledge Management System.
+  gaiaRelations   NoteRelation[]
+  gaiaCollections SmartCollection[]
+  gaiaCanvases    KnowledgeCanvas[]
+  gaiaInbox       InboxItem[]
 
   @@map("users")
 }
@@ -91,6 +96,8 @@ model Note {
   cover        String?
   /// Module 1 — objectif d'écriture de cette note (mots), null = aucun.
   wordGoal     Int?      @map("word_goal")
+  /// Module 2 (K13) — propriétés : JSON GaiaNoteProperty[] (clé/valeur typée).
+  properties   String    @default("[]")
   lastViewedAt DateTime? @map("last_viewed_at")
   deletedAt    DateTime? @map("deleted_at")
   // ── Phase 1 — Memory (Heat Memory System + spaced repetition, 18 Nov 2026).
@@ -119,32 +126,117 @@ model Note {
 }
 
 /// Dossier de notes (nom unique par utilisateur, insensible à la casse).
+/// Module 2 (K05) : dossiers imbriqués via parentId (null = racine).
 model NoteFolder {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")
   name      String
+  parentId  String?  @map("parent_id")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  notes Note[]
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   NoteFolder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children NoteFolder[] @relation("FolderChildren")
+  notes    Note[]
 
   @@index([userId])
+  @@index([userId, parentId])
   @@map("gaia_folders")
 }
 
 /// Tag de notes (nom unique par utilisateur, insensible à la casse, "#" retiré).
+/// Module 2 (K07) : tags hiérarchiques via parentId + relations explicites
+/// (JSON string[] d'ids de tags, ex. synonymes / tags liés).
 model NoteTag {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  name       String
+  parentId   String?  @map("parent_id")
+  relatedIds String   @default("[]") @map("related_ids")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent   NoteTag?  @relation("TagChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children NoteTag[] @relation("TagChildren")
+
+  @@index([userId])
+  @@index([userId, parentId])
+  @@map("gaia_tags")
+}
+
+/// Module 2 (K08) — relation personnalisée entre deux notes.
+/// `type` est un libellé libre ("relates to", "contradicts", "inspired by"…).
+/// Une paire (from, to, type) est unique ; la relation est orientée mais
+/// lisible dans les deux sens (le graphe et l'explorateur l'affichent
+/// des deux côtés).
+model NoteRelation {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  fromNoteId String   @map("from_note_id")
+  toNoteId   String   @map("to_note_id")
+  type       String   @default("relates to")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fromNoteId, toNoteId, type])
+  @@index([userId, fromNoteId])
+  @@index([userId, toNoteId])
+  @@map("gaia_note_relations")
+}
+
+/// Module 2 (K06) — collection dynamique : une requête sauvegardée.
+/// `criteria` est un JSON GaiaCollectionCriteria (dossier, tags, mastery,
+/// favori, recherche texte, propriétés). Évaluée à la lecture.
+model SmartCollection {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")
   name      String
+  icon      String   @default("📁")
+  criteria  String   @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@map("gaia_tags")
+  @@map("gaia_smart_collections")
+}
+
+/// Module 2 (K09) — canvas de connaissances : des cartes (notes) posées
+/// librement sur un plan. `items` est un JSON GaiaCanvasItem[].
+model KnowledgeCanvas {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String
+  items     String   @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("gaia_knowledge_canvases")
+}
+
+/// Module 2 (K12) — boîte de réception : capture rapide d'idées.
+/// `noteId` est rempli à la conversion en note ; `doneAt` quand traitée.
+model InboxItem {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  text      String
+  doneAt    DateTime? @map("done_at")
+  noteId    String?   @map("note_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, doneAt])
+  @@map("gaia_inbox_items")
 }
 
 /// Modèle de note créé par l'utilisateur. Les 5 modèles built-in (tpl-...)

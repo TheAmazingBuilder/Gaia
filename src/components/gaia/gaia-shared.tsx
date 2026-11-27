@@ -167,6 +167,8 @@ export interface GaiaNote {
   cover: string | null;
   /** Module 1 : objectif d'écriture de la note (mots), null = aucun. */
   wordGoal: number | null;
+  /** Module 2 (K13) : propriétés personnalisées. */
+  properties: GaiaNoteProperty[];
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -200,6 +202,8 @@ export interface GaiaNoteRow {
   cover: string | null;
   /** Module 1 : objectif d'écriture de la note (mots), null = aucun. */
   wordGoal: number | null;
+  /** Module 2 (K13) : propriétés personnalisées. */
+  properties: GaiaNoteProperty[];
   createdAt: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -216,6 +220,8 @@ export interface GaiaNoteRow {
 export interface GaiaFolder {
   id: string;
   name: string;
+  /** Module 2 (K05) : dossier parent, null = racine. */
+  parentId: string | null;
   createdAt: string;
   noteCount: number;
 }
@@ -223,6 +229,10 @@ export interface GaiaFolder {
 export interface GaiaTag {
   id: string;
   name: string;
+  /** Module 2 (K07) : tag parent, null = racine. */
+  parentId: string | null;
+  /** Module 2 (K07) : ids des tags liés (synonymes, tags associés). */
+  relatedIds: string[];
   noteCount: number;
 }
 
@@ -285,7 +295,10 @@ export type GaiaTab =
   | "templates"
   | "trash"
   | "memory"
-  | "graph";
+  | "graph"
+  | "knowledge"
+  | "canvas"
+  | "inbox";
 
 export interface GaiaNotesParams {
   view: GaiaNotesView;
@@ -301,6 +314,8 @@ export interface GaiaNotesParams {
   due?: boolean;
   /** Phase 2 — Temporal Kanban: filter by time bucket. */
   period?: TimePeriod;
+  /** Module 2 (K06) : filtrer par une collection dynamique. */
+  collectionId?: string;
 }
 
 export const GAIA_DEFAULT_PARAMS: GaiaNotesParams = {
@@ -559,6 +574,8 @@ function gaiaNotesQuery(params: GaiaNotesParams): string {
   if (params.due === true) q.set("due", "true");
   // Phase 2 — Temporal Kanban filter.
   if (params.period) q.set("period", params.period);
+  // Module 2 (K06) — collection dynamique.
+  if (params.collectionId) q.set("collectionId", params.collectionId);
   return q.toString();
 }
 
@@ -633,18 +650,24 @@ export interface GaiaMemoryGraphNode {
   title: string;
   mastery: MasteryLevel;
   folderId: string | null;
+  /** Module 2 (K15) : aucune arête ne touche cette note. */
+  orphan: boolean;
 }
 
 export interface GaiaMemoryGraphEdge {
   from: string;
   to: string;
-  kind: "ref" | "tag";
+  kind: "ref" | "tag" | "relation";
   tagName?: string;
+  /** Module 2 (K08) : libellé de la relation. */
+  label?: string;
 }
 
 export interface GaiaMemoryGraph {
   nodes: GaiaMemoryGraphNode[];
   edges: GaiaMemoryGraphEdge[];
+  /** Module 2 (K08) : libellés de relations distincts. */
+  relationTypes: string[];
 }
 
 export function useGaiaMemoryGraph() {
@@ -804,6 +827,8 @@ export interface GaiaNoteUpdateInput {
   cover?: string | null;
   /** Module 1 : objectif d'écriture (mots), null = retirer. */
   wordGoal?: number | null;
+  /** Module 2 (K13) : propriétés personnalisées (remplace la liste). */
+  properties?: GaiaNoteProperty[];
 }
 
 export function useCreateGaiaNote() {
@@ -876,10 +901,10 @@ export function usePurgeGaiaNote() {
 export function useCreateGaiaFolder() {
   const invalidate = useGaiaInvalidate();
   return useMutation({
-    mutationFn: (name: string) =>
+    mutationFn: (input: { name: string; parentId?: string | null }) =>
       apiFetch<GaiaFolder>(`${GAIA_BASE}/folders`, {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(input),
       }),
     onSuccess: () => invalidate(),
   });
@@ -888,10 +913,20 @@ export function useCreateGaiaFolder() {
 export function useUpdateGaiaFolder() {
   const invalidate = useGaiaInvalidate();
   return useMutation({
-    mutationFn: ({ folderId, name }: { folderId: string; name: string }) =>
+    mutationFn: ({
+      folderId,
+      name,
+      parentId,
+    }: {
+      folderId: string;
+      name: string;
+      parentId?: string | null;
+    }) =>
       apiFetch<GaiaFolder>(`${GAIA_BASE}/folders/${folderId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(
+          parentId === undefined ? { name } : { name, parentId },
+        ),
       }),
     onSuccess: () => invalidate(),
   });
@@ -911,11 +946,42 @@ export function useDeleteGaiaFolder() {
 export function useCreateGaiaTag() {
   const invalidate = useGaiaInvalidate();
   return useMutation({
-    mutationFn: (name: string) =>
+    mutationFn: (input: { name: string; parentId?: string | null; relatedIds?: string[] }) =>
       apiFetch<GaiaTag>(`${GAIA_BASE}/tags`, {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(input),
       }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useUpdateGaiaTag() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({
+      tagId,
+      name,
+      parentId,
+      relatedIds,
+    }: {
+      tagId: string;
+      name?: string;
+      parentId?: string | null;
+      relatedIds?: string[];
+    }) =>
+      apiFetch<GaiaTag>(`${GAIA_BASE}/tags/${tagId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, parentId, relatedIds }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaTag() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (tagId: string) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/tags/${tagId}`, { method: "DELETE" }),
     onSuccess: () => invalidate(),
   });
 }
@@ -997,5 +1063,360 @@ export function useGaiaTodayWords() {
   return useQuery({
     queryKey: ["gaia", "writing", "today"],
     queryFn: () => apiFetch<GaiaTodayWords>(`${GAIA_BASE}/writing/today`),
+  });
+}
+
+// ── Module 2 — Knowledge Management System (K01–K17) ────────────────────
+
+export type GaiaNotePropertyType = "text" | "number" | "date" | "checkbox" | "select";
+
+export interface GaiaNoteProperty {
+  key: string;
+  value: string;
+  type: GaiaNotePropertyType;
+  options?: string[];
+}
+
+export interface GaiaNoteRelation {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: string;
+  direction: "outgoing" | "incoming";
+  otherNoteId: string;
+  otherTitle: string;
+  createdAt: string;
+}
+
+export interface GaiaNoteLinkItem {
+  id: string;
+  title: string;
+  via: "ref" | "relation";
+  relationType?: string;
+}
+
+export interface GaiaUnlinkedMention {
+  id: string;
+  title: string;
+  snippet: string;
+}
+
+export interface GaiaNoteLinks {
+  outgoing: GaiaNoteLinkItem[];
+  backlinks: GaiaNoteRow[];
+  unlinkedMentions: GaiaUnlinkedMention[];
+  relations: GaiaNoteRelation[];
+}
+
+export interface GaiaLinkSuggestion {
+  id: string;
+  title: string;
+  score: number;
+  sharedWords: string[];
+}
+
+export interface GaiaCollectionCriteria {
+  folderId?: string | null;
+  tagIds?: string[];
+  mastery?: string;
+  favorite?: boolean;
+  q?: string;
+  properties?: Array<{ key: string; value: string }>;
+}
+
+export interface GaiaSmartCollection {
+  id: string;
+  name: string;
+  icon: string;
+  criteria: GaiaCollectionCriteria;
+  noteCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GaiaCanvasItem {
+  noteId: string;
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+}
+
+export interface GaiaCanvas {
+  id: string;
+  name: string;
+  items: GaiaCanvasItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GaiaInboxItem {
+  id: string;
+  text: string;
+  doneAt: string | null;
+  noteId: string | null;
+  createdAt: string;
+}
+
+export interface GaiaKnowledgeTimelineMonth {
+  month: string;
+  created: number;
+  edited: number;
+  relations: number;
+  notes: Array<{ id: string; title: string; mastery: MasteryLevel; createdAt: string }>;
+}
+
+export function useGaiaNoteLinks(noteId: string | null) {
+  return useQuery({
+    queryKey: ["gaia", "notes", noteId, "links"],
+    queryFn: () =>
+      apiFetch<GaiaNoteLinks>(`${GAIA_BASE}/notes/${noteId}/links`),
+    enabled: noteId !== null && noteId !== "",
+  });
+}
+
+export function useGaiaLinkSuggestions(noteId: string | null) {
+  return useQuery({
+    queryKey: ["gaia", "notes", noteId, "suggestions"],
+    queryFn: () =>
+      apiFetch<{ suggestions: GaiaLinkSuggestion[] }>(
+        `${GAIA_BASE}/notes/${noteId}/suggestions`,
+      ),
+    enabled: noteId !== null && noteId !== "",
+  });
+}
+
+export function useCreateGaiaRelation() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, toNoteId, type }: { noteId: string; toNoteId: string; type: string }) =>
+      apiFetch<{ relation: GaiaNoteRelation }>(`${GAIA_BASE}/notes/${noteId}/relations`, {
+        method: "POST",
+        body: JSON.stringify({ toNoteId, type }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaRelation() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ noteId, relationId }: { noteId: string; relationId: string }) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/notes/${noteId}/relations/${relationId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useGaiaOrphans() {
+  return useQuery({
+    queryKey: ["gaia", "knowledge", "orphans"],
+    queryFn: () =>
+      apiFetch<{ notes: GaiaNoteRow[]; total: number }>(
+        `${GAIA_BASE}/knowledge/orphans`,
+      ),
+  });
+}
+
+export function useGaiaKnowledgeTimeline() {
+  return useQuery({
+    queryKey: ["gaia", "knowledge", "timeline"],
+    queryFn: () =>
+      apiFetch<{ months: GaiaKnowledgeTimelineMonth[] }>(
+        `${GAIA_BASE}/knowledge/timeline`,
+      ),
+  });
+}
+
+export function useGaiaCollections() {
+  return useQuery({
+    queryKey: ["gaia", "collections"],
+    queryFn: () =>
+      apiFetch<{ collections: GaiaSmartCollection[] }>(`${GAIA_BASE}/collections`),
+  });
+}
+
+export function useCreateGaiaCollection() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (input: { name: string; icon?: string; criteria: GaiaCollectionCriteria }) =>
+      apiFetch<{ collection: GaiaSmartCollection }>(`${GAIA_BASE}/collections`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useUpdateGaiaCollection() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({
+      collectionId,
+      name,
+      icon,
+      criteria,
+    }: {
+      collectionId: string;
+      name: string;
+      icon?: string;
+      criteria: GaiaCollectionCriteria;
+    }) =>
+      apiFetch<{ collection: GaiaSmartCollection }>(
+        `${GAIA_BASE}/collections/${collectionId}`,
+        { method: "PATCH", body: JSON.stringify({ name, icon, criteria }) },
+      ),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaCollection() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (collectionId: string) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/collections/${collectionId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useGaiaCanvases() {
+  return useQuery({
+    queryKey: ["gaia", "canvases"],
+    queryFn: () =>
+      apiFetch<{ canvases: GaiaCanvas[] }>(`${GAIA_BASE}/canvases`),
+  });
+}
+
+export function useGaiaCanvas(canvasId: string | null) {
+  return useQuery({
+    queryKey: ["gaia", "canvases", canvasId],
+    queryFn: () =>
+      apiFetch<{ canvas: GaiaCanvas }>(`${GAIA_BASE}/canvases/${canvasId}`),
+    enabled: canvasId !== null && canvasId !== "",
+  });
+}
+
+export function useCreateGaiaCanvas() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (input: { name: string; items?: GaiaCanvasItem[] }) =>
+      apiFetch<{ canvas: GaiaCanvas }>(`${GAIA_BASE}/canvases`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useUpdateGaiaCanvas() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({
+      canvasId,
+      name,
+      items,
+    }: {
+      canvasId: string;
+      name: string;
+      items?: GaiaCanvasItem[];
+    }) =>
+      apiFetch<{ canvas: GaiaCanvas }>(`${GAIA_BASE}/canvases/${canvasId}`, {
+        method: "PATCH",
+        body: JSON.stringify(items === undefined ? { name } : { name, items }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaCanvas() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (canvasId: string) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/canvases/${canvasId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useGaiaInbox() {
+  return useQuery({
+    queryKey: ["gaia", "inbox"],
+    queryFn: () =>
+      apiFetch<{ open: GaiaInboxItem[]; done: GaiaInboxItem[] }>(
+        `${GAIA_BASE}/inbox`,
+      ),
+  });
+}
+
+export function useCreateGaiaInboxItem() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (text: string) =>
+      apiFetch<{ item: GaiaInboxItem }>(`${GAIA_BASE}/inbox`, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useToggleGaiaInboxItem() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: ({ itemId, done }: { itemId: string; done: boolean }) =>
+      apiFetch<{ item: GaiaInboxItem }>(`${GAIA_BASE}/inbox/${itemId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ done }),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteGaiaInboxItem() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      apiFetch<{ ok: boolean }>(`${GAIA_BASE}/inbox/${itemId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useConvertGaiaInboxItem() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      apiFetch<{ note: GaiaNote; item: GaiaInboxItem }>(
+        `${GAIA_BASE}/inbox/${itemId}/convert`,
+        { method: "POST" },
+      ),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useCreateGaiaDailyNote() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ note: GaiaNote }>(`${GAIA_BASE}/notes/daily`, {
+        method: "POST",
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useCreateGaiaWeeklyNote() {
+  const invalidate = useGaiaInvalidate();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ note: GaiaNote }>(`${GAIA_BASE}/notes/weekly`, {
+        method: "POST",
+      }),
+    onSuccess: () => invalidate(),
   });
 }

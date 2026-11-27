@@ -14,11 +14,14 @@ import {
   Brain,
   FileText,
   Folder,
+  Inbox,
   LayoutDashboard,
+  LayoutGrid,
   NotebookText,
   Share2,
   Star,
   Trash2,
+  Waypoints,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
@@ -42,9 +45,12 @@ import {
 } from "./gaia-shared";
 import { NotesBrowser } from "./gaia-notes";
 import { GaiaMark, GaiaWordmark } from "./gaia-logo";
-import { FoldersPanel, OverviewPanel, TemplatesPanel, TrashPanel } from "./gaia-panels";
+import { FoldersPanel, OverviewPanel, TagsPanel, TemplatesPanel, TrashPanel } from "./gaia-panels";
 import { MemoryPanel } from "./gaia-memory";
 import { GraphPanel } from "./gaia-graph";
+import { KnowledgePanel } from "./gaia-knowledge";
+import { CanvasPanel } from "./gaia-canvas";
+import { InboxPanel } from "./gaia-inbox";
 import { GaiaEditor } from "./gaia-editor";
 
 const TABS: Array<{ id: GaiaTab; icon: typeof LayoutDashboard }> = [
@@ -52,13 +58,16 @@ const TABS: Array<{ id: GaiaTab; icon: typeof LayoutDashboard }> = [
   { id: "notes", icon: FileText },
   { id: "memory", icon: Brain },
   { id: "graph", icon: Share2 },
+  { id: "knowledge", icon: Waypoints },
+  { id: "canvas", icon: LayoutGrid },
+  { id: "inbox", icon: Inbox },
   { id: "folders", icon: Folder },
   { id: "favorites", icon: Star },
   { id: "templates", icon: NotebookText },
   { id: "trash", icon: Trash2 },
 ];
 
-const VALID_TABS: GaiaTab[] = ["overview", "notes", "memory", "graph", "folders", "favorites", "templates", "trash"];
+const VALID_TABS: GaiaTab[] = ["overview", "notes", "memory", "graph", "knowledge", "canvas", "inbox", "folders", "favorites", "templates", "trash"];
 const VALID_VIEWS: GaiaNotesView[] = ["all", "favorites", "trash", "folder", "tag"];
 
 export function GaiaView() {
@@ -97,7 +106,7 @@ export function GaiaView() {
 
   const setTab = React.useCallback(
     (tab: string) =>
-      setParams({ tab, note: null, folder: null, tag: null, q: null, sort: null, view: null }),
+      setParams({ tab, note: null, folder: null, tag: null, q: null, sort: null, view: null, collection: null }),
     [setParams],
   );
 
@@ -131,6 +140,7 @@ export function GaiaView() {
     tagId: query.tag ?? "",
     q: query.q ?? "",
     sort: query.sort ?? "updated",
+    collectionId: query.collection ?? "",
   };
 
   const onNotesParamsChange = React.useCallback(
@@ -141,6 +151,7 @@ export function GaiaView() {
       if (changes.tagId !== undefined) mapped.tag = changes.tagId;
       if (changes.q !== undefined) mapped.q = changes.q;
       if (changes.sort !== undefined) mapped.sort = changes.sort === "updated" ? null : changes.sort;
+      if (changes.collectionId !== undefined) mapped.collection = changes.collectionId;
       setParams(mapped);
     },
     [setParams],
@@ -156,12 +167,14 @@ export function GaiaView() {
         q: null,
         sort: null,
         view: null,
+        collection: null,
       };
       if (params?.view !== undefined) mapped.view = params.view === "all" ? null : params.view;
       if (params?.folderId !== undefined) mapped.folder = params.folderId;
       if (params?.tagId !== undefined) mapped.tag = params.tagId;
       if (params?.q !== undefined) mapped.q = params.q;
       if (params?.sort !== undefined) mapped.sort = params.sort === "updated" ? null : params.sort;
+      if (params?.collectionId !== undefined) mapped.collection = params.collectionId;
       setParams(mapped);
     },
     [setParams],
@@ -295,13 +308,28 @@ export function GaiaView() {
             {activeTab === "graph" ? (
               <GraphPanel onOpenNote={openNote} onCreateNote={handleCreateNote} />
             ) : null}
-            {activeTab === "folders" ? (
-              <FoldersPanel
-                onOpenFolder={(folderId) =>
-                  onGoTab("notes", { view: "folder", folderId })
+            {activeTab === "knowledge" ? (
+              <KnowledgePanel
+                onOpenNote={openNote}
+                onOpenCollection={(collectionId) =>
+                  onGoTab("notes", { view: "all", collectionId })
                 }
-                onCreateNoteInFolder={(folderId) => handleCreateNote(folderId)}
               />
+            ) : null}
+            {activeTab === "canvas" ? <CanvasPanel onOpenNote={openNote} /> : null}
+            {activeTab === "inbox" ? <InboxPanel onOpenNote={openNote} /> : null}
+            {activeTab === "folders" ? (
+              <div className="space-y-4">
+                <FoldersPanel
+                  onOpenFolder={(folderId) =>
+                    onGoTab("notes", { view: "folder", folderId })
+                  }
+                  onCreateNoteInFolder={(folderId) => handleCreateNote(folderId)}
+                />
+                <TagsPanel
+                  onOpenTag={(tagId) => onGoTab("notes", { view: "tag", tagId })}
+                />
+              </div>
             ) : null}
             {activeTab === "favorites" ? (
               <NotesBrowser

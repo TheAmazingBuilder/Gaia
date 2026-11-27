@@ -14,6 +14,7 @@ import {
   Download,
   FileDown,
   History,
+  Link2,
   ListTree,
   Maximize2,
   Minimize2,
@@ -62,6 +63,7 @@ import {
   useUpdateGaiaSettings,
   type GaiaBlock,
   type GaiaCover,
+  type GaiaNoteProperty,
   type GaiaRefHit,
   type GaiaRefKind,
   type GaiaT,
@@ -91,6 +93,8 @@ import {
   type FormatKind,
 } from "./gaia-editor-panels";
 import { stripInlineMarkers } from "@/lib/gaia/inline";
+import { LinksPanel } from "./gaia-links-panel";
+import { PropertiesPanel } from "./gaia-properties";
 import {
   childrenListId,
   countBlocksDeep,
@@ -125,6 +129,8 @@ interface DraftState {
   cover: string | null;
   /** Module 1 : objectif d'écriture de la note (mots), null = aucun. */
   wordGoal: number | null;
+  /** Module 2 (K13) : propriétés personnalisées. */
+  properties: GaiaNoteProperty[];
 }
 
 function emptyDraft(): DraftState {
@@ -137,6 +143,7 @@ function emptyDraft(): DraftState {
     blocks: [{ id: newBlockId(), type: "paragraph", text: "" }],
     cover: null,
     wordGoal: null,
+    properties: [],
   };
 }
 
@@ -405,6 +412,9 @@ export function GaiaEditor({
   // Module 1 — édition / sommaire / sélection / commentaires / dialogues.
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = React.useState(false);
+  // Module 2 (K02–K04, K08, K14) : panneau Liens (backlinks, mentions,
+  // relations, suggestions). Exclusif avec le sommaire.
+  const [linksOpen, setLinksOpen] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<ReadonlySet<string>>(new Set());
   const [openCommentsId, setOpenCommentsId] = React.useState<string | null>(null);
   const [moveDialog, setMoveDialog] = React.useState<{
@@ -453,6 +463,7 @@ export function GaiaEditor({
           blocks: current.blocks,
           cover: current.cover,
           wordGoal: current.wordGoal,
+          properties: current.properties,
         },
       });
       dirtyRef.current = false;
@@ -507,6 +518,7 @@ export function GaiaEditor({
           : [{ id: newBlockId(), type: "paragraph", text: "" }],
       cover: serverNote.cover ?? null,
       wordGoal: serverNote.wordGoal ?? null,
+      properties: serverNote.properties ?? [],
     };
     setDraftState(next);
     setSavedAt(serverNote.updatedAt);
@@ -1487,6 +1499,22 @@ export function GaiaEditor({
     applyDraft((d) => ({ ...d, blocks: [...d.blocks, block] }));
   };
 
+  // Module 2 (K03/K14) : insère un bloc ref vers la note cible à la fin
+  // de la note (transforme une mention non liée / une suggestion en lien).
+  const insertRefBlock = React.useCallback(
+    (targetNoteId: string) => {
+      const block: GaiaBlock = {
+        id: newBlockId(),
+        type: "ref",
+        text: "",
+        ref: { kind: "NOTE", id: targetNoteId },
+      };
+      applyDraft((d) => ({ ...d, blocks: [...d.blocks, block] }));
+      toast({ title: t("gaia.links.linkInserted") });
+    },
+    [applyDraft, toast, t],
+  );
+
   return (
     <div
       data-testid="gaia-editor"
@@ -1496,6 +1524,15 @@ export function GaiaEditor({
       <div className="flex items-start gap-4">
         {outlineOpen && !focusMode ? (
           <OutlinePanel headings={headings} onNavigate={ops.navigateToBlock} onClose={() => setOutlineOpen(false)} t={tr} />
+        ) : null}
+        {linksOpen && !focusMode ? (
+          <LinksPanel
+            noteId={noteId}
+            onOpenNote={onOpenNote}
+            onInsertRef={insertRefBlock}
+            onClose={() => setLinksOpen(false)}
+            t={tr}
+          />
         ) : null}
         <div className="min-w-0 flex-1">
       <div className="overflow-hidden rounded-xl border bg-card">
@@ -1572,10 +1609,26 @@ export function GaiaEditor({
               data-testid="gaia-outline-toggle"
               aria-label={t("gaia.outline.title")}
               title={t("gaia.outline.title")}
-              onClick={() => setOutlineOpen((v) => !v)}
+              onClick={() => {
+                setOutlineOpen((v) => !v);
+                setLinksOpen(false);
+              }}
               className={`rounded-md p-2 hover:bg-muted ${outlineOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
             >
               <ListTree className="size-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              data-testid="gaia-links-toggle"
+              aria-label={t("gaia.links.title")}
+              title={t("gaia.links.title")}
+              onClick={() => {
+                setLinksOpen((v) => !v);
+                setOutlineOpen(false);
+              }}
+              className={`rounded-md p-2 hover:bg-muted ${linksOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+            >
+              <Link2 className="size-4" aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -1749,7 +1802,7 @@ export function GaiaEditor({
                     e.preventDefault();
                     const name = newTagName.trim().replace(/^#/, "");
                     setNewTagName("");
-                    void createTag.mutateAsync(name).then(
+                    void createTag.mutateAsync({ name }).then(
                       (tag) =>
                         applyDraft((d) => ({ ...d, tagIds: [...d.tagIds, tag.id] })),
                       (err: unknown) =>
@@ -1831,6 +1884,11 @@ export function GaiaEditor({
         <div className="border-b px-4 py-2 sm:px-6">
           <FormatToolbar onFormat={applyFormat} disabled={!canFormat} t={tr} />
         </div>
+
+        <PropertiesPanel
+          properties={draft.properties}
+          onChange={(properties) => applyDraft((d) => ({ ...d, properties }))}
+        />
 
         <div data-testid="gaia-blocks" className="max-w-prose space-y-1 px-4 py-4 sm:px-6">
           <BlockList

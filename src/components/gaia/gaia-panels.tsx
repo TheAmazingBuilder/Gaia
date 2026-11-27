@@ -7,6 +7,7 @@
 import * as React from "react";
 import {
   Check,
+  ChevronDown,
   FileText,
   Folder,
   FolderPlus,
@@ -16,6 +17,7 @@ import {
   Plus,
   RotateCcw,
   Star,
+  Tag,
   Trash2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -35,6 +37,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -43,21 +52,28 @@ import {
   gaiaRelativeTime,
   TagChip,
   useCreateGaiaFolder,
+  useCreateGaiaTag,
   useDeleteGaiaFolder,
+  useDeleteGaiaTag,
   useGaiaFolders,
   useGaiaOverview,
+  useGaiaTags,
   useGaiaTemplates,
   useGaiaNotes,
   useInstantiateGaiaTemplate,
   usePurgeGaiaNote,
   useRestoreGaiaNote,
   useUpdateGaiaFolder,
+  useUpdateGaiaTag,
   type GaiaBlock,
+  type GaiaFolder,
   type GaiaNotesParams,
   type GaiaNoteRow,
   type GaiaTab,
+  type GaiaTag,
   type GaiaT,
 } from "./gaia-shared";
+import { buildTree, type KnowledgeTreeNode } from "@/lib/gaia/knowledge";
 import { blockTypeLabel } from "./gaia-blocks";
 
 // ── Compact row ──────────────────────────────────────────────────────────────
@@ -350,23 +366,142 @@ export function FoldersPanel({
   const updateFolder = useUpdateGaiaFolder();
   const deleteFolder = useDeleteGaiaFolder();
   const [name, setName] = React.useState("");
-  const [renameTarget, setRenameTarget] = React.useState<{ id: string; name: string } | null>(null);
+  const [parentId, setParentId] = React.useState("");
+  const [renameTarget, setRenameTarget] = React.useState<{ id: string; name: string; parentId: string | null } | null>(null);
   const [renameName, setRenameName] = React.useState("");
+  const [renameParent, setRenameParent] = React.useState("");
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; noteCount: number } | null>(null);
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 
   const folders = foldersQuery.data?.folders ?? [];
+  const tree = React.useMemo(() => buildTree(folders), [folders]);
+  const flatFolders = React.useMemo(() => {
+    const out: Array<{ id: string; name: string; depth: number }> = [];
+    const walk = (nodes: KnowledgeTreeNode<GaiaFolder>[]) => {
+      for (const n of nodes) {
+        out.push({ id: n.id, name: n.name, depth: n.depth });
+        walk(n.children);
+      }
+    };
+    walk(tree);
+    return out;
+  }, [tree]);
 
   const create = () => {
     const trimmed = name.trim();
     if (trimmed === "") return;
-    void createFolder.mutateAsync(trimmed).then(
-      () => setName(""),
-      (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+    void createFolder
+      .mutateAsync({ name: trimmed, parentId: parentId === "" ? null : parentId })
+      .then(
+        () => {
+          setName("");
+          setParentId("");
+        },
+        (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+      );
+  };
+
+  const renderNode = (node: KnowledgeTreeNode<GaiaFolder>) => {
+    const isCollapsed = collapsed[node.id] ?? false;
+    const hasChildren = node.children.length > 0;
+    return (
+      <li key={node.id} data-testid="gaia-folder-card">
+        <div
+          className="group flex items-center gap-1 rounded-lg border bg-card px-3 py-2.5 hover:border-brand-cyan/40"
+          style={{ marginLeft: node.depth * 20 }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              aria-label={isCollapsed ? t("gaia.folders.expand") : t("gaia.folders.collapse")}
+              aria-expanded={!isCollapsed}
+              onClick={() => setCollapsed((prev) => ({ ...prev, [node.id]: !isCollapsed }))}
+              className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+            >
+              <ChevronDown
+                className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+          ) : (
+            <span className="w-6 shrink-0" aria-hidden="true" />
+          )}
+          <button
+            type="button"
+            data-testid="gaia-folder-open"
+            onClick={() => onOpenFolder(node.id)}
+            className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+              <Folder className="size-4 text-muted-foreground" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate font-semibold">{node.name}</span>
+              <span className="block text-xs text-muted-foreground">
+                {node.noteCount}{" "}
+                {node.noteCount === 1 ? t("gaia.shared.noteOne") : t("gaia.shared.noteMany")}
+                {hasChildren
+                  ? ` · ${node.children.length} ${t("gaia.folders.subfolders")}`
+                  : ""}
+              </span>
+            </span>
+          </button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            onClick={() => onCreateNoteInFolder(node.id)}
+          >
+            <Plus className="size-3.5" aria-hidden="true" />
+            {t("gaia.folders.newNoteHere")}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${t("gaia.folders.optionsFor")} ${node.name}`}
+                className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 focus-within:opacity-100"
+              >
+                <MoreVertical className="size-4" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  setRenameTarget({ id: node.id, name: node.name, parentId: node.parentId });
+                  setRenameName(node.name);
+                  setRenameParent(node.parentId ?? "");
+                }}
+              >
+                <Pencil className="size-3.5" aria-hidden="true" />
+                {t("gaia.folders.rename")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  setDeleteTarget({ id: node.id, name: node.name, noteCount: node.noteCount })
+                }
+                className="text-loss focus:text-loss"
+              >
+                <Trash2 className="size-3.5" aria-hidden="true" />
+                {t("gaia.folders.deleteFolder")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {!isCollapsed && hasChildren ? (
+          <ul className="mt-1 space-y-1">{node.children.map(renderNode)}</ul>
+        ) : null}
+      </li>
     );
   };
 
   return (
-    <div data-testid="gaia-folders-panel" className="space-y-4">
+    <div data-testid="gaia-folders-panel" className="space-y-4 rounded-xl border bg-card p-4">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <Folder className="size-4 text-brand-cyan-deep dark:text-brand-cyan" aria-hidden="true" />
+        {t("gaia.folders.title")}
+      </h2>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={name}
@@ -377,8 +512,22 @@ export function FoldersPanel({
           placeholder={t("gaia.folders.inputPlaceholder")}
           aria-label={t("gaia.folders.inputLabel")}
           data-testid="gaia-folder-name-input"
-          className="max-w-md"
+          className="max-w-xs"
         />
+        <Select value={parentId} onValueChange={setParentId}>
+          <SelectTrigger className="w-48" aria-label={t("gaia.folders.parentLabel")}>
+            <SelectValue placeholder={t("gaia.folders.parentRoot")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{t("gaia.folders.parentRoot")}</SelectItem>
+            {flatFolders.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {"\u00A0".repeat(f.depth * 2)}
+                {f.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button
           type="button"
           data-testid="gaia-folder-create"
@@ -392,9 +541,9 @@ export function FoldersPanel({
       </div>
 
       {foldersQuery.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+            <Skeleton key={i} className="h-14 w-full" />
           ))}
         </div>
       ) : folders.length === 0 ? (
@@ -405,76 +554,9 @@ export function FoldersPanel({
           testid="gaia-folders-empty"
         />
       ) : (
-        <div data-testid="gaia-folders-grid" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {folders.map((folder) => (
-            <div
-              key={folder.id}
-              data-testid="gaia-folder-card"
-              className="group rounded-lg border bg-card p-4 hover:border-brand-cyan/40"
-            >
-              <div className="flex items-start gap-2">
-                <button
-                  type="button"
-                  data-testid="gaia-folder-open"
-                  onClick={() => onOpenFolder(folder.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
-                    <Folder className="size-4 text-muted-foreground" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block truncate font-semibold">{folder.name}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {folder.noteCount}{" "}
-                      {folder.noteCount === 1 ? t("gaia.shared.noteOne") : t("gaia.shared.noteMany")}
-                    </span>
-                  </span>
-                </button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={`${t("gaia.folders.optionsFor")} ${folder.name}`}
-                      className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 focus-within:opacity-100"
-                    >
-                      <MoreVertical className="size-4" aria-hidden="true" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setRenameTarget({ id: folder.id, name: folder.name });
-                        setRenameName(folder.name);
-                      }}
-                    >
-                      <Pencil className="size-3.5" aria-hidden="true" />
-                      {t("gaia.folders.rename")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        setDeleteTarget({ id: folder.id, name: folder.name, noteCount: folder.noteCount })
-                      }
-                      className="text-loss focus:text-loss"
-                    >
-                      <Trash2 className="size-3.5" aria-hidden="true" />
-                      {t("gaia.folders.deleteFolder")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="mt-3 w-full"
-                onClick={() => onCreateNoteInFolder(folder.id)}
-              >
-                <Plus className="size-3.5" aria-hidden="true" />
-                {t("gaia.folders.newNoteHere")}
-              </Button>
-            </div>
-          ))}
-        </div>
+        <ul data-testid="gaia-folders-grid" className="space-y-1">
+          {tree.map(renderNode)}
+        </ul>
       )}
 
       <Dialog open={renameTarget !== null} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
@@ -486,19 +568,25 @@ export function FoldersPanel({
           <Input
             value={renameName}
             onChange={(e) => setRenameName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && renameTarget && renameName.trim() !== "") {
-                void updateFolder
-                  .mutateAsync({ folderId: renameTarget.id, name: renameName.trim() })
-                  .then(
-                    () => setRenameTarget(null),
-                    (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
-                  );
-              }
-            }}
             aria-label={t("gaia.folders.folderName")}
             autoFocus
           />
+          <Select value={renameParent} onValueChange={setRenameParent}>
+            <SelectTrigger aria-label={t("gaia.folders.parentLabel")}>
+              <SelectValue placeholder={t("gaia.folders.parentRoot")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">{t("gaia.folders.parentRoot")}</SelectItem>
+              {flatFolders
+                .filter((f) => renameTarget && f.id !== renameTarget.id)
+                .map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {"\u00A0".repeat(f.depth * 2)}
+                    {f.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
               {t("common.cancel")}
@@ -509,7 +597,11 @@ export function FoldersPanel({
               onClick={() => {
                 if (!renameTarget) return;
                 void updateFolder
-                  .mutateAsync({ folderId: renameTarget.id, name: renameName.trim() })
+                  .mutateAsync({
+                    folderId: renameTarget.id,
+                    name: renameName.trim(),
+                    parentId: renameParent === "" ? null : renameParent,
+                  })
                   .then(
                     () => setRenameTarget(null),
                     (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
@@ -555,6 +647,295 @@ export function FoldersPanel({
             >
               <Trash2 className="size-4" aria-hidden="true" />
               {t("gaia.folders.deleteFolder")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Tags (Module 2, K07) ────────────────────────────────────────────────────
+
+export function TagsPanel({ onOpenTag }: { onOpenTag: (tagId: string) => void }) {
+  const t = useTranslations();
+  const { toast } = useToast();
+  const tagsQuery = useGaiaTags();
+  const createTag = useCreateGaiaTag();
+  const updateTag = useUpdateGaiaTag();
+  const deleteTag = useDeleteGaiaTag();
+  const [name, setName] = React.useState("");
+  const [parentId, setParentId] = React.useState("");
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
+  const [editTarget, setEditTarget] = React.useState<GaiaTag | null>(null);
+  const [editName, setEditName] = React.useState("");
+  const [editParent, setEditParent] = React.useState("");
+  const [editRelated, setEditRelated] = React.useState("");
+  const [deleteTarget, setDeleteTarget] = React.useState<GaiaTag | null>(null);
+
+  const tags = tagsQuery.data?.tags ?? [];
+  const tree = React.useMemo(() => buildTree(tags), [tags]);
+  const flatTags = React.useMemo(() => {
+    const out: Array<{ id: string; name: string; depth: number }> = [];
+    const walk = (nodes: KnowledgeTreeNode<GaiaTag>[]) => {
+      for (const n of nodes) {
+        out.push({ id: n.id, name: n.name, depth: n.depth });
+        walk(n.children);
+      }
+    };
+    walk(tree);
+    return out;
+  }, [tree]);
+  const nameOf = React.useCallback(
+    (id: string) => tags.find((tg) => tg.id === id)?.name ?? id,
+    [tags],
+  );
+
+  const create = () => {
+    const trimmed = name.trim().replace(/^#/, "");
+    if (trimmed === "") return;
+    void createTag
+      .mutateAsync({ name: trimmed, parentId: parentId === "" ? null : parentId })
+      .then(
+        () => {
+          setName("");
+          setParentId("");
+        },
+        (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+      );
+  };
+
+  const renderNode = (node: KnowledgeTreeNode<GaiaTag>) => {
+    const isCollapsed = collapsed[node.id] ?? false;
+    const hasChildren = node.children.length > 0;
+    return (
+      <li key={node.id}>
+        <div
+          className="group flex items-center gap-1 rounded-lg border bg-card px-3 py-2.5 hover:border-brand-cyan/40"
+          style={{ marginLeft: node.depth * 20 }}
+        >
+          {hasChildren ? (
+            <button
+              type="button"
+              aria-label={isCollapsed ? t("gaia.folders.expand") : t("gaia.folders.collapse")}
+              aria-expanded={!isCollapsed}
+              onClick={() => setCollapsed((prev) => ({ ...prev, [node.id]: !isCollapsed }))}
+              className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+            >
+              <ChevronDown
+                className={`size-4 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+          ) : (
+            <span className="w-6 shrink-0" aria-hidden="true" />
+          )}
+          <button
+            type="button"
+            onClick={() => onOpenTag(node.id)}
+            className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+              <Tag className="size-4 text-muted-foreground" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate font-semibold">#{node.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {node.noteCount}{" "}
+                {node.noteCount === 1 ? t("gaia.shared.noteOne") : t("gaia.shared.noteMany")}
+                {node.relatedIds.length > 0
+                  ? ` · ${t("gaia.tags.relatedPrefix")} ${node.relatedIds.map(nameOf).join(", ")}`
+                  : ""}
+              </span>
+            </span>
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${t("gaia.folders.optionsFor")} ${node.name}`}
+                className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100 focus-within:opacity-100"
+              >
+                <MoreVertical className="size-4" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditTarget(node);
+                  setEditName(node.name);
+                  setEditParent(node.parentId ?? "");
+                  setEditRelated(node.relatedIds.map(nameOf).join(", "));
+                }}
+              >
+                <Pencil className="size-3.5" aria-hidden="true" />
+                {t("gaia.tags.edit")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setDeleteTarget(node)}
+                className="text-loss focus:text-loss"
+              >
+                <Trash2 className="size-3.5" aria-hidden="true" />
+                {t("gaia.tags.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {!isCollapsed && hasChildren ? (
+          <ul className="mt-1 space-y-1">{node.children.map(renderNode)}</ul>
+        ) : null}
+      </li>
+    );
+  };
+
+  return (
+    <div data-testid="gaia-tags-panel" className="space-y-4 rounded-xl border bg-card p-4">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <Tag className="size-4 text-brand-cyan-deep dark:text-brand-cyan" aria-hidden="true" />
+        {t("gaia.tags.title")}
+      </h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") create();
+          }}
+          placeholder={t("gaia.tags.inputPlaceholder")}
+          aria-label={t("gaia.tags.inputLabel")}
+          className="max-w-xs"
+        />
+        <Select value={parentId} onValueChange={setParentId}>
+          <SelectTrigger className="w-48" aria-label={t("gaia.tags.parentLabel")}>
+            <SelectValue placeholder={t("gaia.tags.parentRoot")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{t("gaia.tags.parentRoot")}</SelectItem>
+            {flatTags.map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {"\u00A0".repeat(f.depth * 2)}
+                {f.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="button" disabled={name.trim() === "" || createTag.isPending} onClick={create}>
+          <Plus className="size-4" aria-hidden="true" />
+          {t("gaia.tags.create")}
+        </Button>
+      </div>
+      {tagsQuery.isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full" />
+          ))}
+        </div>
+      ) : tags.length === 0 ? (
+        <GaiaEmptyState
+          icon={<Tag className="size-8" aria-hidden="true" />}
+          title={t("gaia.tags.emptyTitle")}
+          body={t("gaia.tags.emptyBody")}
+          testid="gaia-tags-empty"
+        />
+      ) : (
+        <ul className="space-y-1">{tree.map(renderNode)}</ul>
+      )}
+
+      <Dialog open={editTarget !== null} onOpenChange={(open) => { if (!open) setEditTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("gaia.tags.editTitle")}</DialogTitle>
+            <DialogDescription>{t("gaia.tags.editBody")}</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            aria-label={t("gaia.tags.tagName")}
+            autoFocus
+          />
+          <Select value={editParent} onValueChange={setEditParent}>
+            <SelectTrigger aria-label={t("gaia.tags.parentLabel")}>
+              <SelectValue placeholder={t("gaia.tags.parentRoot")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">{t("gaia.tags.parentRoot")}</SelectItem>
+              {flatTags
+                .filter((f) => editTarget && f.id !== editTarget.id)
+                .map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {"\u00A0".repeat(f.depth * 2)}
+                    {f.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Input
+            value={editRelated}
+            onChange={(e) => setEditRelated(e.target.value)}
+            placeholder={t("gaia.tags.relatedPlaceholder")}
+            aria-label={t("gaia.tags.relatedLabel")}
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setEditTarget(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={editName.trim() === ""}
+              onClick={() => {
+                if (!editTarget) return;
+                const relatedNames = editRelated
+                  .split(",")
+                  .map((n) => n.trim().replace(/^#/, "").toLowerCase())
+                  .filter((n) => n !== "");
+                const relatedIds = tags
+                  .filter((tg) => relatedNames.includes(tg.name.toLowerCase()))
+                  .map((tg) => tg.id);
+                void updateTag
+                  .mutateAsync({
+                    tagId: editTarget.id,
+                    name: editName.trim(),
+                    parentId: editParent === "" ? null : editParent,
+                    relatedIds,
+                  })
+                  .then(
+                    () => setEditTarget(null),
+                    (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+                  );
+              }}
+            >
+              <Check className="size-4" aria-hidden="true" />
+              {t("gaia.tags.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {t("gaia.tags.deleteTitlePrefix")} “{deleteTarget?.name}”?
+            </DialogTitle>
+            <DialogDescription>{t("gaia.tags.deleteBody")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!deleteTarget) return;
+                void deleteTag.mutateAsync(deleteTarget.id).then(
+                  () => setDeleteTarget(null),
+                  (err: unknown) => toast({ variant: "destructive", title: gaiaErrorMessage(err) }),
+                );
+              }}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              {t("gaia.tags.delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

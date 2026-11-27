@@ -23,6 +23,7 @@ export async function GET(req: Request) {
       mastery: url.searchParams.get("mastery") ?? undefined,
       due: url.searchParams.get("due") === "true",
       period: url.searchParams.get("period") ?? undefined,
+      collectionId: url.searchParams.get("collectionId") ?? undefined,
       page: url.searchParams.get("page") === null ? undefined : Number(url.searchParams.get("page")),
       pageSize:
         url.searchParams.get("pageSize") === null

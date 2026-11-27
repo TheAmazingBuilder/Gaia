@@ -413,3 +413,110 @@ npm install
 npx prisma db push
 # restart dev, hard refresh
 ```
+
+## Module 2 — Knowledge Management System (26 Nov 2026, branch Features-gaia)
+
+The graph becomes the centre of Gaïa: notes are no longer just linked, the
+relations between them are visible, explorable and typed. All 17 features
+(K01–K17) are implemented.
+
+- **K01 Knowledge Graph** — the Graph tab now also draws custom-relation
+  edges (coral, labelled with the relation type), with a toggle for them;
+  orphan notes render with a dashed border and are counted in the legend.
+- **K02 Backlinks** — the editor's Links panel (Link2 button in the header,
+  exclusive with the outline) lists every note that references the current
+  one.
+- **K03 Unlinked mentions** — same panel: other notes whose title or text
+  contains this note's title without linking to it, with a one-click
+  "Link" that appends a ref block at the end of the note. Titles shorter
+  than 3 characters are skipped (too noisy).
+- **K04 Bi-directional links** — outgoing refs + relations and backlinks
+  side by side in the Links panel; navigation works both ways.
+- **K05 Nested folders** — `NoteFolder.parentId`; the Folders tab is a
+  collapsible tree (indent, expand/collapse, subfolder creation, move via
+  the rename dialog). Deleting a folder moves its children up to its
+  parent. Cycles are rejected server-side.
+- **K06 Smart collections** — `SmartCollection` (name, icon, criteria JSON:
+  folder incl. descendants, tags — all of them — mastery, favorites, text,
+  properties). Managed in the Knowledge tab; opening one filters My Notes
+  (banner with the collection name + clear button). Criteria are evaluated
+  live by `matchCollectionCriteria` (`src/lib/gaia/knowledge.ts`).
+- **K07 Advanced tag system** — `NoteTag.parentId` (hierarchy) +
+  `relatedIds` (explicit related tags, e.g. synonyms). The Folders tab has
+  a Tags section: tree, rename / move / related-tags editing, delete
+  (children reparent to root, tag removed from notes and from other tags'
+  related lists).
+- **K08 Note relationships** — `NoteRelation` (from, to, free-text type:
+  "relates to", "contradicts", "inspired by", "parent of"…). Unique per
+  (from, to, type). Created in the Links panel (note search + type with
+  presets), listed both ways, shown as coral edges in the graph.
+- **K09 Knowledge canvas** — `KnowledgeCanvas` (name, items JSON:
+  noteId + x/y/w/h). The Canvas tab lists canvases (create/rename by
+  double-click/delete) and a 1600×1000 board with a dotted grid; cards are
+  dragged with the pointer and positions save (debounced) on drop. Click a
+  card to open the note; "Add note" drops a new card at a free spot.
+- **K10 Daily notes** — "Daily note" button in My Notes (and in the
+  toolbar): opens (or creates, once per day) `YYYY-MM-DD` in an
+  auto-created "Daily Notes" folder, with the long date as H1, a Tasks
+  section and a Notes section. Idempotent; uses the user's timezone.
+- **K11 Weekly notes** — same, "Weekly note": `Week N · YYYY` in
+  "Weekly Notes", with the Monday–Sunday range, Goals / Review / Notes.
+- **K12 Knowledge inbox** — `InboxItem` (text, doneAt, noteId). The Inbox
+  tab captures ideas fast (Ctrl+Enter), lists open items with "To note"
+  (creates the note — first line = title, one paragraph per line — and
+  opens it), check-off and delete; done items collapse.
+- **K13 Note properties** — `Note.properties` (JSON `GaiaNoteProperty[]`:
+  key, typed value — text / number / date / checkbox / select with
+  options). Editable in a collapsible "Properties" section under the
+  editor title; saved with the normal autosave PATCH. Keys are trimmed
+  and de-duplicated (last wins, case-insensitive).
+- **K14 Smart linking** — `GET /api/gaia/notes/[id]/suggestions`:
+  tokenizes title + text (French/English stopwords, ≥3 chars), scores
+  other notes (title tokens ×3, body ×1, shared tag +2, threshold ≥3)
+  and returns the top 8 with the shared words as the explanation. Shown
+  in the Links panel with one-click linking.
+- **K15 Orphan notes** — `GET /api/gaia/knowledge/orphans`: notes with no
+  outgoing ref, no incoming ref, no relation and no tag shared with
+  another note. Listed in the Knowledge tab (open + link from the editor).
+- **K16 Knowledge timeline** — `GET /api/gaia/knowledge/timeline`:
+  per-month created / edited / relations counts + newest notes (max 12
+  months, 10 notes/month), in the Knowledge tab.
+- **K17 Relations explorer** — the Knowledge tab's explorer: search a
+  note, see its 1-hop and 2-hop neighborhood in a React Flow graph (same
+  node style as the Graph tab, center note ringed in coral), click any
+  node to re-center. A coverage line says how many notes are connected.
+
+### Module 2 — data model
+
+- `prisma/schema.prisma` — `NoteFolder.parentId` (self-relation),
+  `NoteTag.parentId` + `relatedIds` (JSON string[]),
+  `Note.properties` (String, JSON), new models `NoteRelation`,
+  `SmartCollection`, `KnowledgeCanvas`, `InboxItem`.
+- `prisma/rls.sql` — 16 new policies (4 per new table), same
+  `user_id = auth.uid()::text` pattern (36 policies total). RLS is still
+  not applied on Supabase — apply the whole file after `db push`.
+- `src/lib/gaia/knowledge.ts` — client-safe helpers: trees
+  (`buildTree`, `descendantIds`, `isDescendantOf`), collection matching,
+  tokenization + suggestion scoring, ISO week / daily / weekly titles.
+  Unit-tested with `tsx` (trees, criteria, tokenizer, scoring, dates).
+- New API routes (unversioned + `/api/v1/gaia/` mirrors): `notes/daily`,
+  `notes/weekly`, `notes/[id]/links`, `notes/[id]/suggestions`,
+  `notes/[id]/relations` (+ `[relationId]`), `collections` (+ `[id]`,
+  `[id]/notes`), `canvases` (+ `[id]`), `inbox` (+ `[id]`,
+  `[id]/convert`), `knowledge/orphans`, `knowledge/timeline`,
+  `tags/[id]`. `GET /api/gaia/notes` accepts `collectionId`.
+- New components: `gaia-knowledge.tsx`, `gaia-canvas.tsx`,
+  `gaia-inbox.tsx`, `gaia-links-panel.tsx`, `gaia-properties.tsx`.
+  Modified: `gaia-view.tsx` (3 new tabs: Knowledge, Canvas, Inbox),
+  `gaia-graph.tsx` (relation edges + orphans), `gaia-editor.tsx` (Links
+  panel toggle + properties section), `gaia-panels.tsx` (folder tree +
+  TagsPanel), `gaia-notes.tsx` (daily/weekly buttons + collection
+  banner), `gaia-shared.tsx` (types + hooks), `messages/en.json`.
+
+### Module 2 — PC steps (after pull)
+
+```powershell
+npm install
+npx prisma db push
+# restart dev, hard refresh
+```
