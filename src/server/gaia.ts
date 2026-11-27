@@ -95,6 +95,7 @@ import {
 } from "@/modules/notes/services/lifecycle";
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
+import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
 import {
   getTodayWordsQuery,
   getWritingSettingsQuery,
@@ -1568,15 +1569,7 @@ export async function listVersions(
   userId: string,
   noteId: string,
 ): Promise<{ versions: GaiaVersionSummary[] }> {
-  const versions = await versionsOf(userId, noteId);
-  return {
-    versions: versions.map((v) => ({
-      id: v.id,
-      title: v.title,
-      savedAt: v.savedAt.toISOString(),
-      wordCount: countWords(parseJsonBlocks(v.blocks)),
-    })),
-  };
+  return listVersionsQuery(userId, noteId);
 }
 
 export async function getVersion(
@@ -1584,18 +1577,7 @@ export async function getVersion(
   noteId: string,
   versionId: string,
 ): Promise<{ version: GaiaVersionDetail }> {
-  const version = await db.noteVersion.findFirst({
-    where: { userId, noteId, id: versionId },
-  });
-  if (!version) throw VERSION_NOT_FOUND();
-  return {
-    version: {
-      id: version.id,
-      title: version.title,
-      savedAt: version.savedAt.toISOString(),
-      blocks: parseJsonBlocks(version.blocks),
-    },
-  };
+  return getVersionQuery(userId, noteId, versionId, VERSION_NOT_FOUND);
 }
 
 export async function restoreVersion(
@@ -1603,23 +1585,16 @@ export async function restoreVersion(
   noteId: string,
   versionId: string,
 ): Promise<GaiaNoteResponse> {
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const version = await db.noteVersion.findFirst({
-    where: { userId, noteId, id: versionId },
-  });
-  if (!version) throw VERSION_NOT_FOUND();
-  await maybeSnapshotVersion(userId, note);
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
-      title: version.title,
-      blocks: JSON.stringify(cloneBlocksWithNewIds(parseJsonBlocks(version.blocks))),
-      updatedAt: new Date(),
+  return restoreVersionCommand(userId, noteId, versionId, {
+    noteNotFound: NOTE_NOT_FOUND,
+    versionNotFound: VERSION_NOT_FOUND,
+    maybeSnapshotVersion,
+    cloneBlocksWithNewIds,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
     },
   });
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, updated, folders, tags);
 }
 
 /* ── Dossiers ────────────────────────────────────────────────────────── */
