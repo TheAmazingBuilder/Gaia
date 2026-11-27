@@ -23,6 +23,7 @@ import type {
   GaiaNoteRow,
   GaiaVersionDetail,
   GaiaVersionSummary,
+  GaiaTemplateDTO,
 } from "@/modules/notes/types";
 export type {
   GaiaNoteDTO,
@@ -32,7 +33,9 @@ export type {
   GaiaNoteRow,
   GaiaVersionDetail,
   GaiaVersionSummary,
+  GaiaTemplateDTO,
 } from "@/modules/notes/types";
+export type { GaiaTemplateDTO } from "@/modules/notes/types";
 import type {
   InboxItem,
   KnowledgeCanvas,
@@ -40,7 +43,6 @@ import type {
   NoteFolder,
   NoteRelation,
   NoteTag,
-  NoteTemplate,
   NoteVersion,
   Prisma,
   SmartCollection,
@@ -94,6 +96,12 @@ import {
   trashNoteCommand,
 } from "@/modules/notes/services/lifecycle";
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
+import {
+  createTemplateCommand,
+  findTemplateQuery,
+  instantiateTemplateCommand,
+  listTemplatesQuery,
+} from "@/modules/notes/services/templates";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { getNoteQuery } from "@/modules/notes/services/details";
 import {
@@ -144,7 +152,6 @@ import {
   type GaiaBlock,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
-import { builtInTemplates, findBuiltInTemplate, type GaiaBuiltInTemplate } from "@/lib/gaia/templates";
 import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib/gaia/refs";
 import {
   isMasteryLevel,
@@ -305,20 +312,6 @@ const tagInputSchema = z.object({
   relatedIds: z.array(z.string()).max(24).optional(),
 });
 
-const templateCreateInputSchema = z.object({
-  name: z.string().min(1).max(120),
-  description: z.string().max(300).default(""),
-  icon: z.string().max(16).default("📄"),
-  fromNoteId: z.string().optional(),
-  blocks: gaiaBlocksInputSchema.optional(),
-});
-
-const templateInstantiateInputSchema = z.object({
-  templateId: z.string().min(1),
-  title: z.string().max(200).optional(),
-  folderId: z.string().nullable().optional(),
-});
-
 type SafeParser<T> = {
   safeParse: (
     input: unknown,
@@ -445,16 +438,6 @@ export type GaiaKnowledgeTimelineMonth = {
   edited: number;
   relations: number;
   notes: Array<{ id: string; title: string; mastery: MasteryLevel; createdAt: string }>;
-};
-
-export type GaiaTemplateDTO = {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  blocks: GaiaBlock[];
-  builtIn: boolean;
-  createdAt: string;
 };
 
 export type GaiaActivityWeek = { weekStart: string; created: number; edited: number };
@@ -763,7 +746,7 @@ export async function createNote(
     assertSafeImageSources,
     normalizeProperties,
     findTemplate: async (ownerId, templateId) =>
-      findBuiltInTemplate(templateId) ?? findUserTemplate(ownerId, templateId),
+      findTemplateQuery(ownerId, templateId, parseJsonBlocks),
     findActiveNote,
     noteResponse: async (ownerId, note) => {
       const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
@@ -1389,93 +1372,45 @@ export async function deleteTag(userId: string, tagId: string): Promise<{ ok: tr
 
 /* ── Modèles ─────────────────────────────────────────────────────────── */
 
-function userTemplateToDTO(template: NoteTemplate): GaiaTemplateDTO {
-  return {
-    id: template.id,
-    name: template.name,
-    description: template.description,
-    icon: template.icon,
-    blocks: parseJsonBlocks(template.blocks),
-    builtIn: template.builtIn,
-    createdAt: template.createdAt.toISOString(),
-  };
-}
-
-function builtInToDTO(template: GaiaBuiltInTemplate): GaiaTemplateDTO {
-  return {
-    id: template.id,
-    name: template.name,
-    description: template.description,
-    icon: template.icon,
-    blocks: template.blocks,
-    builtIn: true,
-    createdAt: template.createdAt,
-  };
-}
-
-async function findUserTemplate(
-  userId: string,
-  templateId: string,
-): Promise<GaiaTemplateDTO | null> {
-  const row = await db.noteTemplate.findFirst({ where: { userId, id: templateId } });
-  return row ? userTemplateToDTO(row) : null;
-}
-
 export async function listTemplates(userId: string): Promise<{ templates: GaiaTemplateDTO[] }> {
-  const userTemplates = await db.noteTemplate.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
-  return {
-    templates: [
-      ...builtInTemplates().map(builtInToDTO),
-      ...userTemplates.map(userTemplateToDTO),
-    ],
-  };
+  return listTemplatesQuery(userId, parseJsonBlocks);
 }
 
 export async function createTemplate(
   userId: string,
   input: unknown,
 ): Promise<GaiaTemplateDTO> {
-  const parsed = parseOrThrow(templateCreateInputSchema, input);
-  let blocks: GaiaBlock[];
-  if (parsed.blocks !== undefined) {
-    blocks = normalizeBlocks(parsed.blocks);
-  } else if (parsed.fromNoteId !== undefined) {
-    const note = await findActiveNote(userId, parsed.fromNoteId);
-    if (!note) throw NOTE_NOT_FOUND();
-    blocks = stripRefs(cloneBlocksWithNewIds(parseJsonBlocks(note.blocks)));
-  } else {
-    blocks = [emptyParagraphBlock()];
-  }
-  assertSafeImageSources(blocks);
-  const template = await db.noteTemplate.create({
-    data: {
-      userId,
-      name: parsed.name.trim(),
-      description: parsed.description.trim(),
-      icon: parsed.icon || "📄",
-      blocks: JSON.stringify(blocks),
-      builtIn: false,
-    },
+  return createTemplateCommand(userId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    templateNotFound: TEMPLATE_NOT_FOUND,
+    parseBlocks: normalizeBlocks,
+    parseStoredBlocks: parseJsonBlocks,
+    cloneBlocksWithNewIds,
+    cloneTemplateBlocks: (blocks) => stripRefs(blocks),
+    emptyParagraphBlock,
+    assertSafeImageSources,
+    findActiveNote,
+    createNote,
   });
-  return userTemplateToDTO(template);
 }
 
 export async function instantiateTemplate(
   userId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(templateInstantiateInputSchema, input);
-  const template =
-    findBuiltInTemplate(parsed.templateId) ??
-    (await findUserTemplate(userId, parsed.templateId));
-  if (!template) throw TEMPLATE_NOT_FOUND();
-  return createNote(userId, {
-    title: parsed.title?.trim() || template.name,
-    folderId: parsed.folderId ?? null,
-    templateId: template.id,
+  return instantiateTemplateCommand(userId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    templateNotFound: TEMPLATE_NOT_FOUND,
+    parseBlocks: normalizeBlocks,
+    parseStoredBlocks: parseJsonBlocks,
+    cloneBlocksWithNewIds,
+    cloneTemplateBlocks: (blocks) => stripRefs(blocks),
+    emptyParagraphBlock,
+    assertSafeImageSources,
+    findActiveNote,
+    createNote,
   });
 }
 
