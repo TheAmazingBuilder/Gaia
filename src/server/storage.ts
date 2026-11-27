@@ -75,8 +75,15 @@ export async function downloadFromStorage(
   return { ok: true, blob: result.data, contentType: result.data.type || "application/octet-stream" };
 }
 
-/** Suppression de binaires (ignore les chemins absents). */
+/**
+ * Supprime les binaires (les chemins absents sont ignorés par Supabase).
+ * Ne masque jamais une erreur Storage : les appelants doivent pouvoir
+ * distinguer une suppression effective d'un nettoyage échoué.
+ */
 export async function removeFromStorage(client: SupabaseClient, paths: string[]): Promise<void> {
   if (paths.length === 0) return;
-  await client.storage.from(GAIA_FILE_BUCKET).remove(paths);
+  const result = await client.storage.from(GAIA_FILE_BUCKET).remove(paths);
+  if (result.error) {
+    throw new Error(`Supabase Storage removal failed: ${result.error.message}`);
+  }
 }
