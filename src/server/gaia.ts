@@ -95,6 +95,7 @@ import {
   trashNoteCommand,
 } from "@/modules/notes/services/lifecycle";
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
+import { updateNoteCommand } from "@/modules/notes/services/update";
 import {
   countOpenTodos,
   countWords,
@@ -114,7 +115,6 @@ import {
   type GaiaBlock,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
-import { collectSyncedTexts, syncTextAcross } from "@/lib/gaia/tree";
 import { builtInTemplates, findBuiltInTemplate, type GaiaBuiltInTemplate } from "@/lib/gaia/templates";
 import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib/gaia/refs";
 import {
@@ -1050,115 +1050,19 @@ export async function updateNote(
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  const parsed = parseOrThrow(noteUpdateInputSchema, input);
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-
-  const hasMeaningfulChange =
-    parsed.title !== undefined ||
-    parsed.icon !== undefined ||
-    parsed.folderId !== undefined ||
-    parsed.tagIds !== undefined ||
-    parsed.favorite !== undefined ||
-    parsed.blocks !== undefined ||
-    parsed.cover !== undefined ||
-    parsed.wordGoal !== undefined ||
-    parsed.properties !== undefined;
-
-  if (!hasMeaningfulChange) {
-    if (parsed.touchViewed === true) {
-      const touched = await db.note.update({
-        where: { id: note.id },
-        data: { lastViewedAt: new Date() },
-      });
-      const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-      return noteResponse(userId, touched, folders, tags);
-    }
-    const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-    return noteResponse(userId, note, folders, tags);
-  }
-
-  await maybeSnapshotVersion(userId, note);
-
-  const data: {
-    title?: string;
-    icon?: string | null;
-    folderId?: string | null;
-    tagIds?: string;
-    favorite?: boolean;
-    blocks?: string;
-    cover?: string | null;
-    wordGoal?: number | null;
-    properties?: string;
-    updatedAt: Date;
-  } = { updatedAt: new Date() };
-  if (parsed.title !== undefined) data.title = parsed.title.trim();
-  if (parsed.icon !== undefined) data.icon = parsed.icon;
-  if (parsed.folderId !== undefined) data.folderId = parsed.folderId;
-  if (parsed.favorite !== undefined) data.favorite = parsed.favorite;
-  if (parsed.cover !== undefined) data.cover = parsed.cover;
-  if (parsed.wordGoal !== undefined) data.wordGoal = parsed.wordGoal;
-  if (parsed.properties !== undefined) {
-    data.properties = JSON.stringify(normalizeProperties(parsed.properties));
-  }
-  if (parsed.tagIds !== undefined) {
-    const known = await loadTags(userId);
-    const knownIds = new Set(known.map((t) => t.id));
-    data.tagIds = JSON.stringify(parsed.tagIds.filter((id) => knownIds.has(id)));
-  }
-  if (parsed.blocks !== undefined) {
-    const blocks = normalizeBlocks(parsed.blocks);
-    assertSafeImageSources(blocks);
-    data.blocks = JSON.stringify(blocks);
-  }
-
-  const updated = await db.note.update({ where: { id: note.id }, data });
-  // Module 1 (E08) : propager le texte des blocs synchronisés modifiés
-  // vers leurs copies dans les autres notes de l'utilisateur.
-  if (parsed.blocks !== undefined) {
-    const synced = collectSyncedTexts(normalizeBlocks(parsed.blocks));
-    if (synced.size > 0) {
-      await propagateSyncedBlocks(userId, note.id, synced);
-    }
-  }
-  const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-  return noteResponse(userId, updated, folders, tags);
-}
-
-/**
- * Module 1 (E08) — propagation inter-notes des blocs synchronisés.
- * Pour chaque autre note contenant une copie d'un syncId modifié, le texte
- * de la copie est aligné. updatedAt n'est pas touché (pas de bruit dans
- * les versions ni dans les tris) ; la copie reste liée pour les prochaines
- * modifications.
- */
-async function propagateSyncedBlocks(
-  userId: string,
-  sourceNoteId: string,
-  synced: Map<string, string>,
-): Promise<void> {
-  const others = await db.note.findMany({
-    where: { userId, deletedAt: null, id: { not: sourceNoteId } },
-    select: { id: true, blocks: true },
+  return updateNoteCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    normalizeBlocks,
+    parseStoredBlocks: parseJsonBlocks,
+    assertSafeImageSources,
+    normalizeProperties,
+    maybeSnapshotVersion,
+    noteResponse: async (ownerId, note) => {
+      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
+      return noteResponse(ownerId, note, folders, tags);
+    },
   });
-  for (const other of others) {
-    const blocks = parseJsonBlocks(other.blocks);
-    let changed = false;
-    let next = blocks;
-    for (const [syncId, text] of synced) {
-      const updatedBlocks = syncTextAcross(next, syncId, text);
-      if (updatedBlocks !== next) {
-        changed = true;
-        next = updatedBlocks;
-      }
-    }
-    if (changed) {
-      await db.note.update({
-        where: { id: other.id },
-        data: { blocks: JSON.stringify(next) },
-      });
-    }
-  }
 }
 
 /* ── Module 1 — Objectifs d'écriture (E12) ─────────────────────────────── */
