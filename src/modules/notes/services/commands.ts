@@ -4,7 +4,7 @@ import {
   noteDuplicateInputSchema,
 } from "@/modules/notes/schemas";
 import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
-import type { GaiaBlock } from "@/lib/gaia/content";
+import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
 import type { Note } from "@prisma/client";
 import type { z } from "zod";
 
@@ -14,7 +14,8 @@ type NoteCommandDependencies = {
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
   noteNotFound: () => Error;
   folderNotFound: () => Error;
-  parseBlocks: (input: unknown) => GaiaBlock[];
+  parseBlocks: (input: GaiaBlockInput[]) => GaiaBlock[];
+  parseStoredBlocks: (stored: string | null | undefined) => GaiaBlock[];
   cloneBlocksWithNewIds: (blocks: GaiaBlock[]) => GaiaBlock[];
   emptyParagraphBlock: () => GaiaBlock;
   assertSafeImageSources: (blocks: GaiaBlock[]) => void;
@@ -127,7 +128,7 @@ export async function duplicateNoteCommand(
       tagIds: source.tagIds,
       favorite: false,
       templateId: source.templateId,
-      blocks: JSON.stringify(deps.cloneBlocksWithNewIds(deps.parseBlocks(source.blocks))),
+      blocks: JSON.stringify(deps.cloneBlocksWithNewIds(deps.parseStoredBlocks(source.blocks))),
       createdAt: now,
       updatedAt: now,
       lastViewedAt: now,
