@@ -90,6 +90,11 @@ export type { ListFilesParams } from "@/modules/files/services/queries";
 
 import { db } from "@/lib/db";
 import {
+  purgeNoteCommand,
+  restoreNoteCommand,
+  trashNoteCommand,
+} from "@/modules/notes/services/lifecycle";
+import {
   countOpenTodos,
   countWords,
   excerptOf,
@@ -1272,28 +1277,15 @@ export async function getTodayWords(userId: string): Promise<GaiaTodayWords> {
 }
 
 export async function trashNote(userId: string, noteId: string): Promise<{ ok: true }> {
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  await db.note.update({ where: { id: note.id }, data: { deletedAt: new Date() } });
-  return { ok: true };
+  return trashNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
 }
 
 export async function restoreNote(userId: string, noteId: string): Promise<{ ok: true }> {
-  const note = await findNoteAnyState(userId, noteId);
-  if (!note || note.deletedAt === null) throw NOTE_NOT_FOUND();
-  await db.note.update({
-    where: { id: note.id },
-    data: { deletedAt: null, updatedAt: new Date() },
-  });
-  return { ok: true };
+  return restoreNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
 }
 
 export async function purgeNote(userId: string, noteId: string): Promise<{ ok: true }> {
-  const note = await findNoteAnyState(userId, noteId);
-  if (!note || note.deletedAt === null) throw NOTE_NOT_FOUND();
-  await db.noteVersion.deleteMany({ where: { userId, noteId: note.id } });
-  await db.note.delete({ where: { id: note.id } });
-  return { ok: true };
+  return purgeNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
 }
 
 export async function duplicateNote(
