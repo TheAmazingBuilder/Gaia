@@ -190,24 +190,41 @@ export async function deleteFileCommand(
   errors: DeleteErrors,
   storage: Pick<LifecycleStorage, "isConfigured" | "getClient" | "remove">,
 ): Promise<{ ok: true }> {
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: { versions: { select: { storagePath: true } } },
-  });
-  if (!row) throw errors.fileNotFound();
-
   if (!storage.isConfigured()) throw errors.storageNotConfigured();
   const client = storage.getClient();
   if (!client) throw errors.storageNotConfigured();
 
-  const paths = [...new Set([row.storagePath, ...row.versions.map((version) => version.storagePath)])];
   try {
-    await storage.remove(client, paths);
+    await db.$transaction(async (tx) => {
+      // Lock the parent row while collecting paths and removing binaries.
+      // Replace/restore use conditional updates on this same row, so they
+      // cannot commit a new version midway through deletion.
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM gaia_files
+        WHERE id = ${fileId} AND user_id = ${userId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) throw errors.fileNotFound();
+
+      const row = await tx.gaiaFile.findFirst({
+        where: { userId, id: fileId },
+        include: { versions: { select: { storagePath: true } } },
+      });
+      if (!row) throw errors.fileNotFound();
+
+      const paths = [...new Set([row.storagePath, ...row.versions.map((version) => version.storagePath)])];
+      try {
+        await storage.remove(client, paths);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Storage removal failed.";
+        throw errors.storageRemovalFailed(message);
+      }
+
+      await tx.gaiaFile.delete({ where: { id: row.id } });
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Storage removal failed.";
-    throw errors.storageRemovalFailed(message);
+    throw error;
   }
 
-  await db.gaiaFile.delete({ where: { id: row.id } });
   return { ok: true };
 }
