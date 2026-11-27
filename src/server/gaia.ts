@@ -9,9 +9,6 @@
  */
 import { NextResponse } from "next/server";
 import type {
-  FileAnnotation,
-  FileVersion,
-  GaiaFile,
   InboxItem,
   KnowledgeCanvas,
   Note,
