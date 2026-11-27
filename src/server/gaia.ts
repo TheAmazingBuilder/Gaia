@@ -40,7 +40,6 @@ import type {
   KnowledgeCanvas,
   Note,
   NoteFolder,
-  NoteRelation,
   NoteTag,
   NoteVersion,
   Prisma,
@@ -88,6 +87,12 @@ import {
 } from "@/modules/files/services/queries";
 export type { ListFilesParams } from "@/modules/files/services/queries";
 
+import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
+import {
+  createNoteRelationCommand,
+  deleteNoteRelationCommand,
+  listNoteRelationsQuery,
+} from "@/modules/knowledge/services/relations";
 import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
@@ -282,11 +287,6 @@ const canvasItemSchema = z.object({
   h: z.number().min(80).max(1200).optional(),
 });
 
-const relationInputSchema = z.object({
-  toNoteId: z.string().min(1),
-  type: z.string().min(1).max(60),
-});
-
 const collectionInputSchema = z.object({
   name: z.string().min(1).max(120),
   icon: z.string().max(16).optional(),
@@ -357,18 +357,6 @@ export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
 
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
-
-export type GaiaNoteRelationDTO = {
-  id: string;
-  fromNoteId: string;
-  toNoteId: string;
-  type: string;
-  /** "outgoing" = from the queried note; "incoming" = towards it. */
-  direction: "outgoing" | "incoming";
-  otherNoteId: string;
-  otherTitle: string;
-  createdAt: string;
-};
 
 export type GaiaNoteLinkItem = {
   id: string;
@@ -1562,70 +1550,15 @@ export async function listLinkedNotes(
 
 // ── Helpers Module 2 ──────────────────────────────────────────────────
 
-function relationToDTO(
-  rel: NoteRelation,
-  direction: "outgoing" | "incoming",
-  otherTitle: string,
-): GaiaNoteRelationDTO {
-  const otherNoteId = direction === "outgoing" ? rel.toNoteId : rel.fromNoteId;
-  return {
-    id: rel.id,
-    fromNoteId: rel.fromNoteId,
-    toNoteId: rel.toNoteId,
-    type: rel.type,
-    direction,
-    otherNoteId,
-    otherTitle,
-    createdAt: rel.createdAt.toISOString(),
-  };
-}
-
-async function loadRelations(userId: string): Promise<NoteRelation[]> {
-  return db.noteRelation.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
-}
-
-/** Notes (id → title) for a set of ids, active only. */
-async function loadNoteTitles(
-  userId: string,
-  ids: string[],
-): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  const rows = await db.note.findMany({
-    where: { userId, id: { in: ids }, deletedAt: null },
-    select: { id: true, title: true },
-  });
-  return new Map(rows.map((r) => [r.id, r.title === "" ? "Untitled note" : r.title]));
-}
-
 // ── K08 — Relations personnalisées ────────────────────────────────────
 
 export async function listNoteRelations(
   userId: string,
   noteId: string,
 ): Promise<{ relations: GaiaNoteRelationDTO[] }> {
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const relations = await loadRelations(userId);
-  const mine = relations.filter(
-    (r) => r.fromNoteId === noteId || r.toNoteId === noteId,
-  );
-  const otherIds = mine.map((r) =>
-    r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId,
-  );
-  const titles = await loadNoteTitles(userId, otherIds);
-  return {
-    relations: mine.map((r) =>
-      relationToDTO(
-        r,
-        r.fromNoteId === noteId ? "outgoing" : "incoming",
-        titles.get(r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId) ??
-          "Untitled note",
-      ),
-    ),
-  };
+  return listNoteRelationsQuery(userId, noteId, {
+    noteNotFound: NOTE_NOT_FOUND,
+  });
 }
 
 export async function createNoteRelation(
@@ -1633,27 +1566,11 @@ export async function createNoteRelation(
   noteId: string,
   input: unknown,
 ): Promise<{ relation: GaiaNoteRelationDTO }> {
-  const parsed = parseOrThrow(relationInputSchema, input);
-  const from = await findActiveNote(userId, noteId);
-  if (!from) throw NOTE_NOT_FOUND();
-  const to = await findActiveNote(userId, parsed.toNoteId);
-  if (!to) throw NOTE_NOT_FOUND();
-  if (parsed.toNoteId === noteId) {
-    throw validationError("A note cannot relate to itself.");
-  }
-  const type = parsed.type.trim();
-  const existing = await db.noteRelation.findFirst({
-    where: { userId, fromNoteId: noteId, toNoteId: parsed.toNoteId, type },
+  return createNoteRelationCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound: NOTE_NOT_FOUND,
+    conflictError,
   });
-  if (existing) {
-    throw conflictError("RELATION_EXISTS", "This relation already exists.");
-  }
-  const rel = await db.noteRelation.create({
-    data: { userId, fromNoteId: noteId, toNoteId: parsed.toNoteId, type },
-  });
-  return {
-    relation: relationToDTO(rel, "outgoing", to.title === "" ? "Untitled note" : to.title),
-  };
 }
 
 export async function deleteNoteRelation(
@@ -1661,14 +1578,9 @@ export async function deleteNoteRelation(
   noteId: string,
   relationId: string,
 ): Promise<{ ok: true }> {
-  const rel = await db.noteRelation.findFirst({
-    where: { userId, id: relationId },
+  return deleteNoteRelationCommand(userId, noteId, relationId, {
+    relationNotFound: () => notFound("RELATION_NOT_FOUND", "Relation not found."),
   });
-  if (!rel || (rel.fromNoteId !== noteId && rel.toNoteId !== noteId)) {
-    throw notFound("RELATION_NOT_FOUND", "Relation not found.");
-  }
-  await db.noteRelation.delete({ where: { id: rel.id } });
-  return { ok: true };
 }
 
 // ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
