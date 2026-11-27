@@ -2,13 +2,20 @@ import { db } from "@/lib/db";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
-import {
-  getStorageClient,
-  isStorageConfigured,
-  removeFromStorage,
-  storagePathFor,
-  uploadToStorage,
-} from "@/server/storage";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+type LifecycleStorage = {
+  isConfigured: () => boolean;
+  getClient: () => SupabaseClient | null;
+  remove: (client: SupabaseClient, paths: string[]) => Promise<void>;
+  pathFor: (userId: string, fileId: string, version: number, name: string) => string;
+  upload: (
+    client: SupabaseClient,
+    path: string,
+    buffer: Buffer,
+    mimeType: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+};
 
 type LifecycleErrors = {
   fileNotFound: () => Error;
@@ -32,9 +39,10 @@ export async function replaceFileCommand(
   fileId: string,
   input: { name: string; mimeType: string; size: number; buffer: Buffer },
   errors: LifecycleErrors,
+  storage: LifecycleStorage,
 ): Promise<{ file: GaiaFileDTO }> {
-  if (!isStorageConfigured()) throw errors.storageNotConfigured();
-  const client = getStorageClient();
+  if (!storage.isConfigured()) throw errors.storageNotConfigured();
+  const client = storage.getClient();
   if (!client) throw errors.storageNotConfigured();
 
   const row = await db.gaiaFile.findFirst({
@@ -48,8 +56,8 @@ export async function replaceFileCommand(
 
   const nextVersion = (row.versions[0]?.version ?? 0) + 1;
   const name = input.name.trim().slice(0, 200) || row.name;
-  const path = storagePathFor(userId, row.id, nextVersion, name);
-  const uploaded = await uploadToStorage(client, path, input.buffer, input.mimeType);
+  const path = storage.pathFor(userId, row.id, nextVersion, name);
+  const uploaded = await storage.upload(client, path, input.buffer, input.mimeType);
   if (!uploaded.ok) {
     throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
   }
@@ -67,7 +75,7 @@ export async function replaceFileCommand(
   }).catch(async (error: unknown) => {
     // Compensate only a failed database write; never remove a binary after
     // metadata has committed successfully.
-    await removeFromStorage(client, [path]);
+    await storage.remove(client, [path]);
     throw error;
   });
 
