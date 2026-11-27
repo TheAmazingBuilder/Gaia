@@ -149,12 +149,15 @@ export async function restoreFileVersionCommand(
 
 type DeleteErrors = {
   fileNotFound: () => Error;
+  storageNotConfigured: () => Error;
+  storageRemovalFailed: (message: string) => Error;
 };
 
 /**
- * F01 — deletes the database record and its version binaries.
- * Storage is injected by the server boundary; database cascades continue
- * to clean up annotations, version metadata and note associations.
+ * F01 — removes all version binaries before deleting metadata.
+ * If Storage fails, the database record is preserved so the operation can
+ * be retried. If the database delete fails after Storage succeeds, retrying
+ * is safe because removing an already-absent object is idempotent.
  */
 export async function deleteFileCommand(
   userId: string,
@@ -168,13 +171,18 @@ export async function deleteFileCommand(
   });
   if (!row) throw errors.fileNotFound();
 
-  await db.gaiaFile.delete({ where: { id: row.id } });
+  if (!storage.isConfigured()) throw errors.storageNotConfigured();
+  const client = storage.getClient();
+  if (!client) throw errors.storageNotConfigured();
 
-  const client = storage.isConfigured() ? storage.getClient() : null;
-  if (client) {
-    const paths = [...new Set([row.storagePath, ...row.versions.map((version) => version.storagePath)])];
+  const paths = [...new Set([row.storagePath, ...row.versions.map((version) => version.storagePath)])];
+  try {
     await storage.remove(client, paths);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Storage removal failed.";
+    throw errors.storageRemovalFailed(message);
   }
 
+  await db.gaiaFile.delete({ where: { id: row.id } });
   return { ok: true };
 }
