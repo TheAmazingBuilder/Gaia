@@ -35,7 +35,6 @@ export type {
   GaiaVersionSummary,
   GaiaTemplateDTO,
 } from "@/modules/notes/types";
-export type { GaiaTemplateDTO } from "@/modules/notes/types";
 import type {
   InboxItem,
   KnowledgeCanvas,
@@ -492,18 +491,6 @@ function cloneBlocksWithNewIds(blocks: GaiaBlock[]): GaiaBlock[] {
     return next;
   };
   return blocks.map(cloneOne);
-}
-
-function stripRefs(blocks: GaiaBlock[]): GaiaBlock[] {
-  return blocks.map((block) => {
-    const { ref: _ref, ...rest } = block;
-    const next: GaiaBlock = rest;
-    if (block.children) next.children = stripRefs(block.children);
-    if (block.columns) {
-      next.columns = block.columns.map((col) => stripRefs(col));
-    }
-    return next;
-  });
 }
 
 /** Parses a JSON string; anything invalid becomes null. */
@@ -1405,7 +1392,6 @@ export async function instantiateTemplate(
     parseBlocks: normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
-    cloneTemplateBlocks: (blocks) => stripRefs(blocks),
     emptyParagraphBlock,
     assertSafeImageSources,
     findActiveNote,
