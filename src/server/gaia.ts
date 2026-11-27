@@ -44,6 +44,12 @@ import {
   updateFileCommand,
 } from "@/modules/files/services/commands";
 import {
+  attachFileToNoteCommand,
+  detachFileFromNoteCommand,
+  listFileNotesQuery,
+  listNoteFilesQuery,
+} from "@/modules/files/services/associations";
+import {
   getFileQuery,
   getStorageUsageQuery,
   listFilesQuery,
@@ -3503,18 +3509,10 @@ export async function attachFileToNote(
   noteId: string,
   fileId: string,
 ): Promise<{ ok: true }> {
-  const [note, file] = await Promise.all([
-    db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } }),
-    db.gaiaFile.findFirst({ where: { userId, id: fileId } }),
-  ]);
-  if (!note) throw NOTE_NOT_FOUND();
-  if (!file) throw FILE_NOT_FOUND();
-  await db.noteFile.upsert({
-    where: { fileId_noteId: { fileId: file.id, noteId: note.id } },
-    create: { fileId: file.id, noteId: note.id },
-    update: {},
+  return attachFileToNoteCommand(userId, noteId, fileId, {
+    noteNotFound: NOTE_NOT_FOUND,
+    fileNotFound: FILE_NOT_FOUND,
   });
-  return { ok: true };
 }
 
 /** F06 — détacher un fichier d'une note (le fichier lui-même est conservé). */
@@ -3523,10 +3521,7 @@ export async function detachFileFromNote(
   noteId: string,
   fileId: string,
 ): Promise<{ ok: true }> {
-  const note = await db.note.findFirst({ where: { userId, id: noteId } });
-  if (!note) throw NOTE_NOT_FOUND();
-  await db.noteFile.deleteMany({ where: { fileId, noteId: note.id } });
-  return { ok: true };
+  return detachFileFromNoteCommand(userId, noteId, fileId, NOTE_NOT_FOUND);
 }
 
 /** F06 — fichiers attachés à une note. */
@@ -3534,25 +3529,7 @@ export async function listNoteFiles(
   userId: string,
   noteId: string,
 ): Promise<{ files: GaiaFileDTO[] }> {
-  const note = await db.note.findFirst({ where: { userId, id: noteId } });
-  if (!note) throw NOTE_NOT_FOUND();
-  const links = await db.noteFile.findMany({
-    where: { noteId: note.id },
-    include: { file: { include: { versions: { select: { id: true } }, notes: { select: { fileId: true } } } } },
-    orderBy: { createdAt: "asc" },
-  });
-  const folders = await loadFolders(userId);
-  const folderNames = new Map(folders.map((f) => [f.id, f.name]));
-  return {
-    files: links.map((l) =>
-      fileToDTO(
-        l.file,
-        l.file.folderId ? (folderNames.get(l.file.folderId) ?? null) : null,
-        l.file.versions.length,
-        l.file.notes.length,
-      ),
-    ),
-  };
+  return listNoteFilesQuery(userId, noteId, NOTE_NOT_FOUND);
 }
 
 /** F15 — notes qui référencent un fichier. */
@@ -3560,20 +3537,7 @@ export async function listFileNotes(
   userId: string,
   fileId: string,
 ): Promise<{ notes: Array<{ id: string; title: string; updatedAt: string }> }> {
-  const file = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
-  if (!file) throw FILE_NOT_FOUND();
-  const links = await db.noteFile.findMany({
-    where: { fileId: file.id },
-    include: { note: { select: { id: true, title: true, updatedAt: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-  return {
-    notes: links.map((l) => ({
-      id: l.note.id,
-      title: l.note.title,
-      updatedAt: l.note.updatedAt.toISOString(),
-    })),
-  };
+  return listFileNotesQuery(userId, fileId, FILE_NOT_FOUND);
 }
 
 /** F14 — espace de stockage : lecture déléguée au module Files. */
