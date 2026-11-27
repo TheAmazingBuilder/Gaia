@@ -1387,7 +1387,6 @@ export async function createTemplate(
     parseBlocks: normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
-    cloneTemplateBlocks: (blocks) => stripRefs(blocks),
     emptyParagraphBlock,
     assertSafeImageSources,
     findActiveNote,
