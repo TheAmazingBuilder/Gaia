@@ -96,6 +96,9 @@ import {
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { getNoteQuery } from "@/modules/notes/services/details";
+import { listNotesQuery, NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/services/list";
+import type { GaiaListQuery } from "@/modules/notes/types";
+export type { GaiaListQuery } from "@/modules/notes/types";
 import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
 import {
   getTodayWordsQuery,
@@ -582,36 +585,6 @@ function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
  * refCount/todoOpen come from a bounded second fetch for the displayed
  * rows only. Full rows (with blocks) still load for single-note reads.
  */
-const NOTE_LIST_SELECT = {
-  id: true,
-  title: true,
-  icon: true,
-  folderId: true,
-  tagIds: true,
-  favorite: true,
-  templateId: true,
-  cover: true,
-  wordGoal: true,
-  properties: true,
-  createdAt: true,
-  updatedAt: true,
-  lastViewedAt: true,
-  deletedAt: true,
-  // Phase 1 — Memory.
-  mastery: true,
-  lastReviewedAt: true,
-  nextReviewAt: true,
-  reviewCount: true,
-  easeFactor: true,
-  intervalDays: true,
-} as const;
-
-type NoteListRow = Prisma.NoteGetPayload<{ select: typeof NOTE_LIST_SELECT }>;
-
-/** Minimal shape toRow reads: full rows satisfy it, narrow rows + their
- * blocks (fetched separately) do too. */
-type NoteRowInput = NoteListRow & { blocks: string };
-
 function toRow(note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]): GaiaNoteRow {
   const blocks = parseJsonBlocks(note.blocks);
   const tagIds = parseJsonStringArray(note.tagIds);
@@ -732,286 +705,19 @@ async function maybeSnapshotVersion(userId: string, note: Note): Promise<void> {
 
 /* ── Notes : lecture ─────────────────────────────────────────────────── */
 
-export type GaiaListQuery = {
-  view?: string;
-  folderId?: string;
-  tagId?: string;
-  q?: string;
-  sort?: string;
-  refKind?: string;
-  refId?: string;
-  /** Phase 1 — Memory: one of "forgotten" | "fragile" | "medium" | "mastered". */
-  mastery?: string;
-  /** Phase 1 — Memory: only notes whose review date has passed (or never reviewed). */
-  due?: boolean;
-  /** Phase 2 — Temporal Kanban: one of "today" | "week" | "month" | "later". */
-  period?: string;
-  /** 1-based page (default 1). */
-  page?: number;
-  /** Rows per page, 1-100 (default 50). */
-  pageSize?: number;
-  /** Module 2 (K06) : filtrer par une collection dynamique. */
-  collectionId?: string;
-};
-
-/** Blocks for a bounded set of note ids (one indexed query). */
-async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
-  if (noteIds.length === 0) return new Map();
-  const rows = await db.note.findMany({
-    where: { id: { in: noteIds } },
-    select: { id: true, blocks: true },
-  });
-  return new Map(rows.map((r) => [r.id, r.blocks]));
-}
-
-function pageWindow(query: GaiaListQuery): { page: number; pageSize: number } {
-  const page = Math.max(1, Math.floor(query.page ?? 1) || 1);
-  const pageSize = Math.min(
-    100,
-    Math.max(1, Math.floor(query.pageSize ?? 50) || 50)
-  );
-  return { page, pageSize };
-}
-
-function sortOrderBy(sort: string): Prisma.NoteOrderByWithRelationInput[] {
-  // Deterministic tiebreaker (id desc) so take/skip pages never shift
-  // when two notes share the same timestamp.
-  if (sort === "created") return [{ createdAt: "desc" }, { id: "desc" }];
-  if (sort === "title") return [{ title: "asc" }, { id: "desc" }];
-  if (sort === "viewed") {
-    // The old JS sort put nulls last; SQL DESC puts them first.
-    return [{ lastViewedAt: { sort: "desc", nulls: "last" } }, { id: "desc" }];
-  }
-  return [{ updatedAt: "desc" }, { id: "desc" }];
-}
-
-/**
- * Phase 1 — Memory: in-memory equivalent of the mastery/due SQL filters,
- * for the refKind path (which scans notes in memory). A null nextReviewAt
- * means "never reviewed", i.e. due.
- * Phase 2 adds the temporal-Kanban period filter (same semantics as the
- * SQL branch in listNotes below).
- */
-function memoryMatches(
-  note: Pick<Note, "mastery" | "nextReviewAt">,
-  query: GaiaListQuery,
-  now: Date,
-): boolean {
-  if (query.mastery !== undefined && query.mastery !== "") {
-    if (!isMasteryLevel(query.mastery)) {
-      throw validationError("Invalid mastery level.");
-    }
-    if (note.mastery !== query.mastery) return false;
-  }
-  if (query.due === true) {
-    if (note.nextReviewAt !== null && note.nextReviewAt.getTime() > now.getTime()) {
-      return false;
-    }
-  }
-  if (query.period !== undefined && query.period !== "") {
-    if (!isTimePeriod(query.period)) {
-      throw validationError("Invalid time period.");
-    }
-    if (periodOf(note.nextReviewAt, now) !== query.period) return false;
-  }
-  return true;
-}
-
 export async function listNotes(
   userId: string,
   query: GaiaListQuery,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  const [folders, tags] = await Promise.all([
-    loadFolders(userId),
-    loadTags(userId),
-  ]);
-  const { page, pageSize } = pageWindow(query);
-
-  // Module 2 (K06) : vue collection — la requête est évaluée en mémoire
-  // (les critères portent sur le texte, les propriétés et les dossiers
-  // descendants, que SQL ne peut pas exprimer simplement ici).
-  if (query.collectionId !== undefined && query.collectionId !== "") {
-    const collection = await db.smartCollection.findFirst({
-      where: { userId, id: query.collectionId },
-    });
-    if (!collection) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
-    const criteria = gaiaCollectionCriteriaSchema.safeParse(
-      safeJsonParse(collection.criteria),
-    ).success
-      ? (gaiaCollectionCriteriaSchema.parse(safeJsonParse(collection.criteria)) as KnowledgeCollectionCriteria)
-      : {};
-    const folderDescendants =
-      criteria.folderId != null
-        ? descendantIds(buildTree(folders), criteria.folderId, false)
-        : [];
-    const now = new Date();
-    const all = await db.note.findMany({ where: { userId, deletedAt: null } });
-    const filtered = all.filter(
-      (note) =>
-        memoryMatches(note, query, now) &&
-        matchCollectionCriteria(
-          {
-            folderId: note.folderId,
-            tagIds: parseJsonStringArray(note.tagIds),
-            mastery: note.mastery,
-            favorite: note.favorite,
-            title: note.title,
-            text: textOfBlocks(parseJsonBlocks(note.blocks)),
-            properties: parseJsonProperties(note.properties),
-          },
-          criteria,
-          folderDescendants,
-        ),
-    );
-    const sorted = [...filtered].sort(
-      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
-    );
-    const total = sorted.length;
-    const pageNotes = sorted.slice((page - 1) * pageSize, page * pageSize);
-    return {
-      notes: pageNotes.map((note) => toRow(note, folders, tags)),
-      total,
-    };
-  }
-
-  // Reference view: link detection needs block text — in-memory path
-  // over the user's notes (same matching as before), then paginate.
-  if (query.refKind !== undefined && query.refId !== undefined) {
-    const parsed = gaiaRefKindSchema.safeParse(query.refKind);
-    if (!parsed.success) {
-      throw validationError("Invalid reference type.");
-    }
-    const kind = parsed.data;
-    const all = await db.note.findMany({ where: { userId } });
-    const now = new Date();
-    const linked = all.filter(
-      (note) =>
-        note.deletedAt === null &&
-        memoryMatches(note, query, now) &&
-        flattenBlocks(parseJsonBlocks(note.blocks)).some(
-          (b) => b.type === "ref" && b.ref?.kind === kind && b.ref.id === query.refId,
-        ),
-    );
-    const sorted = linked.sort(
-      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
-    );
-    const total = sorted.length;
-    const pageNotes = sorted.slice((page - 1) * pageSize, page * pageSize);
-    return {
-      notes: pageNotes.map((note) => toRow(note, folders, tags)),
-      total,
-    };
-  }
-
-  const view = query.view ?? "all";
-  const where: Prisma.NoteWhereInput = { userId };
-  if (view === "trash") {
-    where.deletedAt = { not: null };
-  } else {
-    where.deletedAt = null;
-    if (view === "favorites") where.favorite = true;
-    else if (view === "recent") where.lastViewedAt = { not: null };
-    else if (view === "folder" && query.folderId) {
-      where.folderId = query.folderId;
-    } else if (view === "tag" && query.tagId) {
-      // tagIds is a JSON string array: the quoted match is exact
-      // membership (same as the old array .includes()).
-      where.tagIds = { contains: `"${query.tagId}"` };
-    }
-    // Phase 1 — Memory filters (apply to the common + text-search paths;
-    // the refKind path filters in memory, see memoryMatches above).
-    // An invalid mastery value is a validation error, not an empty list.
-    if (query.mastery !== undefined && query.mastery !== "") {
-      if (!isMasteryLevel(query.mastery)) {
-        throw validationError("Invalid mastery level.");
-      }
-      where.mastery = query.mastery;
-    }
-    if (query.period !== undefined && query.period !== "") {
-      // Phase 2 — Temporal Kanban. An invalid period is a validation
-      // error, not an empty list. "today" is the due set (null or past);
-      // the other buckets are strict ranges, so a note is in exactly
-      // one column. Period wins over `due` when both are passed.
-      if (!isTimePeriod(query.period)) {
-        throw validationError("Invalid time period.");
-      }
-      const now = new Date();
-      const in7 = new Date(now.getTime() + 7 * 86_400_000);
-      const in30 = new Date(now.getTime() + 30 * 86_400_000);
-      const period: TimePeriod = query.period;
-      if (period === "today") {
-        where.OR = [{ nextReviewAt: null }, { nextReviewAt: { lte: now } }];
-      } else if (period === "week") {
-        where.nextReviewAt = { gt: now, lte: in7 };
-      } else if (period === "month") {
-        where.nextReviewAt = { gt: in7, lte: in30 };
-      } else {
-        where.nextReviewAt = { gt: in30 };
-      }
-    } else if (query.due === true) {
-      // Never reviewed (null) counts as due.
-      where.OR = [{ nextReviewAt: null }, { nextReviewAt: { lte: new Date() } }];
-    }
-  }
-
-  const q = (query.q ?? "").trim().toLowerCase();
-  if (q !== "") {
-    // Text search needs block text, tag names and folder names —
-    // in-memory path over the scoped set (same matching as before),
-    // then paginate after filtering.
-    const scoped = await db.note.findMany({ where });
-    const filtered = scoped.filter((note) => {
-      const blocks = parseJsonBlocks(note.blocks);
-      const tagIds = parseJsonStringArray(note.tagIds);
-      return (
-        note.title.toLowerCase().includes(q) ||
-        textOfBlocks(blocks).toLowerCase().includes(q) ||
-        tagNamesOf(tagIds, tags).some((name) =>
-          name.toLowerCase().includes(q),
-        ) ||
-        (folderNameOf(note.folderId, folders) ?? "")
-          .toLowerCase()
-          .includes(q)
-      );
-    });
-    const sort = query.sort ?? "updated";
-    const sorted = [...filtered].sort((a, b) => {
-      if (sort === "created") return b.createdAt.getTime() - a.createdAt.getTime();
-      if (sort === "title") return a.title.localeCompare(b.title);
-      if (sort === "viewed") {
-        return (b.lastViewedAt?.getTime() ?? 0) - (a.lastViewedAt?.getTime() ?? 0);
-      }
-      return b.updatedAt.getTime() - a.updatedAt.getTime();
-    });
-    const total = sorted.length;
-    const pageNotes = sorted.slice((page - 1) * pageSize, page * pageSize);
-    return {
-      notes: pageNotes.map((note) => toRow(note, folders, tags)),
-      total,
-    };
-  }
-
-  // Common path (Phase 2 perf, item 8): SQL filter + sort + take/skip,
-  // blocks only for the page rows — no full-history scan, no block JSON
-  // for notes the page never shows.
-  const [total, pageRows] = await Promise.all([
-    db.note.count({ where }),
-    db.note.findMany({
-      where,
-      select: NOTE_LIST_SELECT,
-      orderBy: sortOrderBy(query.sort ?? "updated"),
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-  const blocksById = await loadBlocksFor(pageRows.map((n) => n.id));
-  return {
-    notes: pageRows.map((n) =>
-      toRow({ ...n, blocks: blocksById.get(n.id) ?? "[]" }, folders, tags)
-    ),
-    total,
-  };
+  return listNotesQuery(userId, query, {
+    validationError,
+    collectionNotFound: () => notFound("COLLECTION_NOT_FOUND", "Collection not found."),
+    collectionCriteriaSchema: gaiaCollectionCriteriaSchema,
+    parseJsonProperties,
+    toRow,
+  });
 }
+
 
 export async function getNote(
   userId: string,
