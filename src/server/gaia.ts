@@ -1030,6 +1030,7 @@ export async function createNote(
     noteNotFound: NOTE_NOT_FOUND,
     folderNotFound: FOLDER_NOT_FOUND,
     parseBlocks: normalizeBlocks,
+    parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
     emptyParagraphBlock,
     assertSafeImageSources,
