@@ -40,6 +40,7 @@ import type {
   KnowledgeCanvas,
   Note,
   NoteFolder,
+  NoteRelation,
   NoteTag,
   NoteVersion,
   Prisma,
@@ -88,6 +89,7 @@ import {
 export type { ListFilesParams } from "@/modules/files/services/queries";
 
 import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
+export type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
 import {
   createNoteRelationCommand,
   deleteNoteRelationCommand,
@@ -1581,6 +1583,41 @@ export async function deleteNoteRelation(
   return deleteNoteRelationCommand(userId, noteId, relationId, {
     relationNotFound: () => notFound("RELATION_NOT_FOUND", "Relation not found."),
   });
+}
+
+function relationToDTO(
+  rel: NoteRelation,
+  direction: "outgoing" | "incoming",
+  otherTitle: string,
+): GaiaNoteRelationDTO {
+  const otherNoteId = direction === "outgoing" ? rel.toNoteId : rel.fromNoteId;
+  return {
+    id: rel.id,
+    fromNoteId: rel.fromNoteId,
+    toNoteId: rel.toNoteId,
+    type: rel.type,
+    direction,
+    otherNoteId,
+    otherTitle,
+    createdAt: rel.createdAt.toISOString(),
+  };
+}
+
+async function loadRelations(userId: string): Promise<NoteRelation[]> {
+  return db.noteRelation.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Notes (id → title) for a set of ids, active only. */
+async function loadNoteTitles(userId: string, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db.note.findMany({
+    where: { userId, id: { in: ids }, deletedAt: null },
+    select: { id: true, title: true },
+  });
+  return new Map(rows.map((row) => [row.id, row.title === "" ? "Untitled note" : row.title]));
 }
 
 // ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
