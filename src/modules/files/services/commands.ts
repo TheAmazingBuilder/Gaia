@@ -16,7 +16,6 @@ type FileAnnotationInput = z.infer<typeof fileAnnotationInputSchema>;
 type FileCommandErrors = {
   fileNotFound: () => Error;
   folderNotFound: () => Error;
-  annotationNotFound: () => Error;
 };
 
 /** F01 — rename or move a file. */
