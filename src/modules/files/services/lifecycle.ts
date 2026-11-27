@@ -146,3 +146,35 @@ export async function restoreFileVersionCommand(
     file: fileToDTO(updated, folder?.name ?? null, nextVersion, noteCount),
   };
 }
+
+type DeleteErrors = {
+  fileNotFound: () => Error;
+};
+
+/**
+ * F01 — deletes the database record and its version binaries.
+ * Storage is injected by the server boundary; database cascades continue
+ * to clean up annotations, version metadata and note associations.
+ */
+export async function deleteFileCommand(
+  userId: string,
+  fileId: string,
+  errors: DeleteErrors,
+  storage: Pick<LifecycleStorage, "isConfigured" | "getClient" | "remove">,
+): Promise<{ ok: true }> {
+  const row = await db.gaiaFile.findFirst({
+    where: { userId, id: fileId },
+    include: { versions: { select: { storagePath: true } } },
+  });
+  if (!row) throw errors.fileNotFound();
+
+  await db.gaiaFile.delete({ where: { id: row.id } });
+
+  const client = storage.isConfigured() ? storage.getClient() : null;
+  if (client) {
+    const paths = [...new Set([row.storagePath, ...row.versions.map((version) => version.storagePath)])];
+    await storage.remove(client, paths);
+  }
+
+  return { ok: true };
+}
