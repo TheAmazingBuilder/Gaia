@@ -809,7 +809,7 @@ export async function duplicateNote(
     assertSafeImageSources,
     normalizeProperties,
     findTemplate: async (ownerId, templateId) =>
-      findBuiltInTemplate(templateId) ?? findUserTemplate(ownerId, templateId),
+      findTemplateQuery(ownerId, templateId, parseJsonBlocks),
     findActiveNote,
     noteResponse: async (ownerId, note) => {
       const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
