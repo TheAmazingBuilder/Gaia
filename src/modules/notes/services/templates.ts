@@ -24,7 +24,6 @@ type TemplateDependencies = {
   parseBlocks: (input: GaiaBlockInput[]) => GaiaBlock[];
   parseStoredBlocks: (stored: string | null | undefined) => GaiaBlock[];
   cloneBlocksWithNewIds: (blocks: GaiaBlock[]) => GaiaBlock[];
-  cloneTemplateBlocks: (blocks: GaiaBlock[]) => GaiaBlock[];
   emptyParagraphBlock: () => GaiaBlock;
   assertSafeImageSources: (blocks: GaiaBlock[]) => void;
   findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
@@ -47,6 +46,18 @@ function parseOrThrow<T>(
     );
   }
   return parsed.data;
+}
+
+function stripRefs(blocks: GaiaBlock[]): GaiaBlock[] {
+  return blocks.map((block) => {
+    const next = { ...block };
+    if (block.children) next.children = stripRefs(block.children);
+    if (block.columns) next.columns = block.columns.map((column) => stripRefs(column));
+    if (next.type === "ref") {
+      return { id: next.id, type: "paragraph", text: "" } as GaiaBlock;
+    }
+    return next;
+  });
 }
 
 function userTemplateToDTO(
@@ -126,7 +137,7 @@ export async function createTemplateCommand(
   } else if (parsed.fromNoteId !== undefined) {
     const note = await deps.findActiveNote(userId, parsed.fromNoteId);
     if (!note) throw deps.noteNotFound();
-    blocks = deps.cloneTemplateBlocks(
+    blocks = stripRefs(
       deps.cloneBlocksWithNewIds(deps.parseStoredBlocks(note.blocks)),
     );
   } else {
