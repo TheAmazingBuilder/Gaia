@@ -36,7 +36,7 @@ export type {
 } from "@/modules/files/types";
 import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
-import { fileAnnotationToDTO, fileToDTO, fileVersionToDTO } from "@/modules/files/mappers";
+import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
 import {
   getFileQuery,
   getStorageUsageQuery,
@@ -97,10 +97,7 @@ import {
   weekStart,
   type KnowledgeCollectionCriteria,
 } from "@/lib/gaia/knowledge";
-import {
-  fileKindOf,
-  GAIA_MAX_FILE_BYTES,
-} from "@/lib/gaia/files";
+import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import {
   downloadFromStorage,
   getStorageClient,
