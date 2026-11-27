@@ -88,13 +88,15 @@ import {
 } from "@/modules/files/services/queries";
 export type { ListFilesParams } from "@/modules/files/services/queries";
 
-import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
+import type { GaiaKnowledgeTimelineMonth, GaiaNoteRelationDTO } from "@/modules/knowledge/types";
+export type { GaiaKnowledgeTimelineMonth, GaiaNoteRelationDTO } from "@/modules/knowledge/types";
 export type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
 import {
   createNoteRelationCommand,
   deleteNoteRelationCommand,
   listNoteRelationsQuery,
 } from "@/modules/knowledge/services/relations";
+import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
 import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
@@ -419,14 +421,6 @@ export type GaiaInboxItemDTO = {
   doneAt: string | null;
   noteId: string | null;
   createdAt: string;
-};
-
-export type GaiaKnowledgeTimelineMonth = {
-  month: string;
-  created: number;
-  edited: number;
-  relations: number;
-  notes: Array<{ id: string; title: string; mastery: MasteryLevel; createdAt: string }>;
 };
 
 export type GaiaActivityWeek = { weekStart: string; created: number; edited: number };
@@ -1827,46 +1821,7 @@ export async function getOrphanNotes(
 export async function getKnowledgeTimeline(
   userId: string,
 ): Promise<{ months: GaiaKnowledgeTimelineMonth[] }> {
-  const [notes, relations] = await Promise.all([
-    db.note.findMany({
-      where: { userId, deletedAt: null },
-      select: { id: true, title: true, mastery: true, createdAt: true, updatedAt: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    db.noteRelation.findMany({ where: { userId }, select: { createdAt: true } }),
-  ]);
-  const monthKey = (d: Date) =>
-    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-  const byMonth = new Map<string, GaiaKnowledgeTimelineMonth>();
-  const ensure = (key: string): GaiaKnowledgeTimelineMonth => {
-    let m = byMonth.get(key);
-    if (!m) {
-      m = { month: key, created: 0, edited: 0, relations: 0, notes: [] };
-      byMonth.set(key, m);
-    }
-    return m;
-  };
-  for (const note of notes) {
-    const created = ensure(monthKey(note.createdAt));
-    created.created += 1;
-    if (created.notes.length < 10) {
-      created.notes.push({
-        id: note.id,
-        title: note.title,
-        mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
-        createdAt: note.createdAt.toISOString(),
-      });
-    }
-    const updatedKey = monthKey(note.updatedAt);
-    if (updatedKey !== monthKey(note.createdAt)) {
-      ensure(updatedKey).edited += 1;
-    }
-  }
-  for (const rel of relations) {
-    ensure(monthKey(rel.createdAt)).relations += 1;
-  }
-  const months = [...byMonth.values()].sort((a, b) => b.month.localeCompare(a.month));
-  return { months: months.slice(0, 12) };
+  return getKnowledgeTimelineQuery(userId);
 }
 
 // ── K06 — Collections dynamiques ──────────────────────────────────────
