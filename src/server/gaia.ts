@@ -50,6 +50,7 @@ import {
   listNoteFilesQuery,
 } from "@/modules/files/services/associations";
 import {
+  deleteFileCommand,
   replaceFileCommand,
   restoreFileVersionCommand,
 } from "@/modules/files/services/lifecycle";
@@ -3391,20 +3392,13 @@ export async function restoreFileVersion(
 
 /** F01 — supprimer un fichier : base + toutes les versions dans Storage. */
 export async function deleteFile(userId: string, fileId: string): Promise<{ ok: true }> {
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: { versions: { select: { storagePath: true } } },
+  return deleteFileCommand(userId, fileId, {
+    fileNotFound: FILE_NOT_FOUND,
+  }, {
+    isConfigured: isStorageConfigured,
+    getClient: getStorageClient,
+    remove: removeFromStorage,
   });
-  if (!row) throw FILE_NOT_FOUND();
-  await db.gaiaFile.delete({ where: { id: row.id } });
-  const client = getStorageClient();
-  if (client) {
-    await removeFromStorage(
-      client,
-      row.versions.map((v) => v.storagePath),
-    );
-  }
-  return { ok: true };
 }
 
 /** F01 — télécharger le binaire d'un fichier (version courante). */
