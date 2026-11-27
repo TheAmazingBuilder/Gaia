@@ -22,12 +22,15 @@ type LifecycleErrors = {
   storageNotConfigured: () => Error;
   validationError: (message: string) => Error;
   storageUploadFailed: (message: string) => Error;
+  storageCleanupFailed: (message: string) => Error;
+  versionConflict: () => Error;
 };
 
 type RestoreErrors = {
   fileNotFound: () => Error;
   versionNotFound: () => Error;
   validationError: (message: string) => Error;
+  versionConflict: () => Error;
 };
 
 /**
@@ -62,22 +65,38 @@ export async function replaceFileCommand(
     throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
   }
 
-  const updated = await db.gaiaFile.update({
-    where: { id: row.id },
-    data: {
-      name,
-      mimeType: input.mimeType.slice(0, 200),
-      size: input.size,
-      storagePath: path,
-      ocrText: "",
-      versions: { create: { version: nextVersion, storagePath: path, size: input.size } },
-    },
-  }).catch(async (error: unknown) => {
-    // Compensate only a failed database write; never remove a binary after
-    // metadata has committed successfully.
-    await storage.remove(client, [path]);
+  let updated;
+  try {
+    updated = await db.$transaction(async (tx) => {
+      // Compare-and-swap on the current path: only one concurrent operation
+      // can advance this file from the version it originally read.
+      const claimed = await tx.gaiaFile.updateMany({
+        where: { id: row.id, userId, storagePath: row.storagePath },
+        data: {
+          name,
+          mimeType: input.mimeType.slice(0, 200),
+          size: input.size,
+          storagePath: path,
+          ocrText: "",
+        },
+      });
+      if (claimed.count !== 1) throw errors.versionConflict();
+
+      await tx.fileVersion.create({
+        data: { fileId: row.id, version: nextVersion, storagePath: path, size: input.size },
+      });
+      return tx.gaiaFile.findFirstOrThrow({ where: { id: row.id, userId } });
+    });
+  } catch (error) {
+    // The upload is provisional until the metadata transaction commits.
+    try {
+      await storage.remove(client, [path]);
+    } catch (cleanupError) {
+      const message = cleanupError instanceof Error ? cleanupError.message : "Storage cleanup failed.";
+      throw errors.storageCleanupFailed(message);
+    }
     throw error;
-  });
+  }
 
   const [folder, noteCount] = await Promise.all([
     updated.folderId
@@ -118,20 +137,26 @@ export async function restoreFileVersionCommand(
   }
 
   const nextVersion = (row.versions[0]?.version ?? 0) + 1;
-  const updated = await db.gaiaFile.update({
-    where: { id: row.id },
-    data: {
-      storagePath: target.storagePath,
-      size: target.size,
-      ocrText: "",
-      versions: {
-        create: {
-          version: nextVersion,
-          storagePath: target.storagePath,
-          size: target.size,
-        },
+  const updated = await db.$transaction(async (tx) => {
+    const claimed = await tx.gaiaFile.updateMany({
+      where: { id: row.id, userId, storagePath: row.storagePath },
+      data: {
+        storagePath: target.storagePath,
+        size: target.size,
+        ocrText: "",
       },
-    },
+    });
+    if (claimed.count !== 1) throw errors.versionConflict();
+
+    await tx.fileVersion.create({
+      data: {
+        fileId: row.id,
+        version: nextVersion,
+        storagePath: target.storagePath,
+        size: target.size,
+      },
+    });
+    return tx.gaiaFile.findFirstOrThrow({ where: { id: row.id, userId } });
   });
   const [folder, noteCount] = await Promise.all([
     updated.folderId
