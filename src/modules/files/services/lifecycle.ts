@@ -54,25 +54,22 @@ export async function replaceFileCommand(
     throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
   }
 
-  let updated;
-  try {
-    updated = await db.gaiaFile.update({
-      where: { id: row.id },
-      data: {
-        name,
-        mimeType: input.mimeType.slice(0, 200),
-        size: input.size,
-        storagePath: path,
-        ocrText: "",
-        versions: { create: { version: nextVersion, storagePath: path, size: input.size } },
-      },
-    });
-  } catch (error) {
+  const updated = await db.gaiaFile.update({
+    where: { id: row.id },
+    data: {
+      name,
+      mimeType: input.mimeType.slice(0, 200),
+      size: input.size,
+      storagePath: path,
+      ocrText: "",
+      versions: { create: { version: nextVersion, storagePath: path, size: input.size } },
+    },
+  }).catch(async (error: unknown) => {
     // Compensate only a failed database write; never remove a binary after
     // metadata has committed successfully.
     await removeFromStorage(client, [path]);
     throw error;
-  }
+  });
 
   const [folder, noteCount] = await Promise.all([
     updated.folderId
