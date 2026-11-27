@@ -3394,6 +3394,9 @@ export async function restoreFileVersion(
 export async function deleteFile(userId: string, fileId: string): Promise<{ ok: true }> {
   return deleteFileCommand(userId, fileId, {
     fileNotFound: FILE_NOT_FOUND,
+    storageNotConfigured: STORAGE_NOT_CONFIGURED,
+    storageRemovalFailed: (message) =>
+      new GaiaError("ServiceUnavailable", "STORAGE_DELETE_FAILED", 503, message),
   }, {
     isConfigured: isStorageConfigured,
     getClient: getStorageClient,
