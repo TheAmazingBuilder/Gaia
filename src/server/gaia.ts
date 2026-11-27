@@ -8,6 +8,14 @@
  * comme un 404.
  */
 import { NextResponse } from "next/server";
+import {
+  gaiaNotePropertySchema,
+  noteCreateInputSchema,
+  noteUpdateInputSchema,
+  writingSettingsInputSchema,
+  noteDuplicateInputSchema,
+} from "@/modules/notes/schemas";
+export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
 import type {
   GaiaNoteDTO,
   GaiaNoteProperty,
@@ -212,47 +220,6 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 /* ── Schémas d'entrée ────────────────────────────────────────────────── */
 
-// Module 2 (K13) — propriétés de note (déclaré avant les schémas de note
-// qui l'utilisent).
-export const gaiaNotePropertySchema = z.object({
-  key: z.string().min(1).max(40),
-  value: z.string().max(500),
-  type: z.enum(["text", "number", "date", "checkbox", "select"]),
-  options: z.array(z.string().max(80)).max(24).optional(),
-});
-
-const gaiaPropertiesInputSchema = z.array(gaiaNotePropertySchema).max(24);
-
-const noteCreateInputSchema = z.object({
-  title: z.string().max(200).optional(),
-  folderId: z.string().nullable().optional(),
-  templateId: z.string().optional(),
-  blocks: gaiaBlocksInputSchema.optional(),
-  cover: z.string().max(2_000_000).nullable().optional(),
-  wordGoal: z.number().int().min(0).max(1_000_000).nullable().optional(),
-  properties: gaiaPropertiesInputSchema.optional(),
-});
-
-const noteUpdateInputSchema = z.object({
-  title: z.string().max(200).optional(),
-  icon: z.string().max(16).nullable().optional(),
-  folderId: z.string().nullable().optional(),
-  tagIds: z.array(z.string()).max(24).optional(),
-  favorite: z.boolean().optional(),
-  blocks: gaiaBlocksInputSchema.optional(),
-  cover: z.string().max(2_000_000).nullable().optional(),
-  wordGoal: z.number().int().min(0).max(1_000_000).nullable().optional(),
-  properties: gaiaPropertiesInputSchema.optional(),
-  touchViewed: z.boolean().optional(),
-});
-
-const writingSettingsInputSchema = z.object({
-  dailyWordGoal: z.number().int().min(0).max(1_000_000),
-});
-
-const noteDuplicateInputSchema = z.object({
-  title: z.string().max(200).optional(),
-});
 
 /* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
