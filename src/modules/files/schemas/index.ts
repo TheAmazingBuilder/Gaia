@@ -1,16 +1,16 @@
 import { z } from "zod";
 
-const fileUpdateInputSchema = z.object({
+export const fileUpdateInputSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   folderId: z.string().min(1).max(64).nullable().optional(),
 });
 
-const fileTextInputSchema = z.object({
+export const fileTextInputSchema = z.object({
   text: z.string().max(200_000),
   source: z.enum(["pdf", "ocr"]).optional(),
 });
 
-const fileAnnotationInputSchema = z.object({
+export const fileAnnotationInputSchema = z.object({
   page: z.number().int().min(1).max(10_000),
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
