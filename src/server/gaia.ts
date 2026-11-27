@@ -3367,6 +3367,12 @@ export async function replaceFile(
     validationError,
     storageUploadFailed: (message) =>
       new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, message),
+  }, {
+    isConfigured: isStorageConfigured,
+    getClient: getStorageClient,
+    remove: removeFromStorage,
+    pathFor: storagePathFor,
+    upload: uploadToStorage,
   });
 }
 
