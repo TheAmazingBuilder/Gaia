@@ -221,6 +221,11 @@ export async function deleteFileCommand(
       }
 
       await tx.gaiaFile.delete({ where: { id: row.id } });
+    }, {
+      maxWait: 5_000,
+      // Storage is an external service; allow time for large version histories
+      // while keeping the row lock bounded.
+      timeout: 30_000,
     });
   } catch (error) {
     throw error;
