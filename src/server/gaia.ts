@@ -97,6 +97,11 @@ import {
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import {
+  moveNoteToMasteryCommand,
+  reviewNoteCommand,
+  scheduleNoteCommand,
+} from "@/modules/notes/services/review";
+import {
   countOpenTodos,
   countWords,
   excerptOf,
@@ -120,6 +125,7 @@ import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib
 import {
   isMasteryLevel,
   isTimePeriod,
+  MASTERY_VALUE,
   periodOf,
   type MasteryLevel,
   type TimePeriod,
