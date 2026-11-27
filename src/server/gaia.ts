@@ -3368,6 +3368,10 @@ export async function replaceFile(
     validationError,
     storageUploadFailed: (message) =>
       new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, message),
+    storageCleanupFailed: (message) =>
+      new GaiaError("ServiceUnavailable", "STORAGE_CLEANUP_FAILED", 503, message),
+    versionConflict: () =>
+      conflictError("FILE_VERSION_CONFLICT", "The file changed during this operation. Refresh and retry."),
   }, {
     isConfigured: isStorageConfigured,
     getClient: getStorageClient,
@@ -3387,6 +3391,8 @@ export async function restoreFileVersion(
     fileNotFound: FILE_NOT_FOUND,
     versionNotFound: () => notFound("FILE_VERSION_NOT_FOUND", "File version not found."),
     validationError,
+    versionConflict: () =>
+      conflictError("FILE_VERSION_CONFLICT", "The file changed during this operation. Refresh and retry."),
   });
 }
 
