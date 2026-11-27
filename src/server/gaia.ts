@@ -37,6 +37,7 @@ export type {
 import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
 import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
+import { updateFileCommand } from "@/modules/files/services/commands";
 import {
   getFileQuery,
   getStorageUsageQuery,
@@ -3334,38 +3335,11 @@ export async function updateFile(
   input: unknown,
 ): Promise<{ file: GaiaFileDTO }> {
   const parsed = parseOrThrow(fileUpdateInputSchema, input);
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
-  if (!row) throw FILE_NOT_FOUND();
-  let folderId = row.folderId;
-  if (parsed.folderId !== undefined) {
-    if (parsed.folderId === null) {
-      folderId = null;
-    } else {
-      const folder = await db.noteFolder.findFirst({ where: { userId, id: parsed.folderId } });
-      if (!folder) throw FOLDER_NOT_FOUND();
-      folderId = folder.id;
-    }
-  }
-  const updated = await db.gaiaFile.update({
-    where: { id: row.id },
-    data: {
-      ...(parsed.name ? { name: parsed.name } : {}),
-      folderId,
-    },
+  return updateFileCommand(userId, fileId, parsed, {
+    fileNotFound: FILE_NOT_FOUND,
+    folderNotFound: FOLDER_NOT_FOUND,
   });
-  const folders = await loadFolders(userId);
-  const versionCount = await db.fileVersion.count({ where: { fileId: row.id } });
-  const noteCount = await db.noteFile.count({ where: { fileId: row.id } });
-  return {
-    file: fileToDTO(
-      updated,
-      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
-      versionCount,
-      noteCount,
-    ),
-  };
 }
-
 /** F13 — remplacer le contenu : nouvelle version, l'ancienne est conservée. */
 export async function replaceFile(
   userId: string,
