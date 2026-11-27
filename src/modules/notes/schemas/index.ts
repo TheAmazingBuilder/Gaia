@@ -41,3 +41,18 @@ export const writingSettingsInputSchema = z.object({
 export const noteDuplicateInputSchema = z.object({
   title: z.string().max(200).optional(),
 });
+
+
+export const templateCreateInputSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(300).default(""),
+  icon: z.string().max(16).default("📄"),
+  fromNoteId: z.string().optional(),
+  blocks: gaiaBlocksInputSchema.optional(),
+});
+
+export const templateInstantiateInputSchema = z.object({
+  templateId: z.string().min(1),
+  title: z.string().max(200).optional(),
+  folderId: z.string().nullable().optional(),
+});
