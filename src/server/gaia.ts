@@ -37,7 +37,12 @@ export type {
 import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
 import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
-import { updateFileCommand } from "@/modules/files/services/commands";
+import {
+  createFileAnnotationCommand,
+  deleteFileAnnotationCommand,
+  saveFileTextCommand,
+  updateFileCommand,
+} from "@/modules/files/services/commands";
 import {
   getFileQuery,
   getStorageUsageQuery,
@@ -3465,21 +3470,7 @@ export async function saveFileText(
   input: unknown,
 ): Promise<{ file: GaiaFileDTO }> {
   const parsed = parseOrThrow(fileTextInputSchema, input);
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
-  if (!row) throw FILE_NOT_FOUND();
-  const updated = await db.gaiaFile.update({
-    where: { id: row.id },
-    data: { ocrText: parsed.text },
-  });
-  const folders = await loadFolders(userId);
-  return {
-    file: fileToDTO(
-      updated,
-      updated.folderId ? (folders.find((f) => f.id === updated.folderId)?.name ?? null) : null,
-      await db.fileVersion.count({ where: { fileId: row.id } }),
-      await db.noteFile.count({ where: { fileId: row.id } }),
-    ),
-  };
+  return saveFileTextCommand(userId, fileId, parsed, FILE_NOT_FOUND);
 }
 
 /** F05 — ajouter une annotation à un document. */
@@ -3489,23 +3480,7 @@ export async function createFileAnnotation(
   input: unknown,
 ): Promise<{ annotation: GaiaFileAnnotationDTO }> {
   const parsed = parseOrThrow(fileAnnotationInputSchema, input);
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
-  if (!row) throw FILE_NOT_FOUND();
-  const created = await db.fileAnnotation.create({
-    data: {
-      fileId: row.id,
-      userId,
-      page: parsed.page,
-      x: parsed.x,
-      y: parsed.y,
-      width: parsed.width ?? null,
-      height: parsed.height ?? null,
-      type: parsed.type,
-      text: parsed.text,
-      color: parsed.color,
-    },
-  });
-  return { annotation: fileAnnotationToDTO(created) };
+  return createFileAnnotationCommand(userId, fileId, parsed, FILE_NOT_FOUND);
 }
 
 /** F05 — supprimer une annotation. */
@@ -3514,10 +3489,12 @@ export async function deleteFileAnnotation(
   fileId: string,
   annotationId: string,
 ): Promise<{ ok: true }> {
-  const row = await db.fileAnnotation.findFirst({ where: { userId, id: annotationId, fileId } });
-  if (!row) throw notFound("ANNOTATION_NOT_FOUND", "Annotation not found.");
-  await db.fileAnnotation.delete({ where: { id: row.id } });
-  return { ok: true };
+  return deleteFileAnnotationCommand(
+    userId,
+    fileId,
+    annotationId,
+    () => notFound("ANNOTATION_NOT_FOUND", "Annotation not found."),
+  );
 }
 
 /** F06/F15 — attacher un fichier à une note. */
