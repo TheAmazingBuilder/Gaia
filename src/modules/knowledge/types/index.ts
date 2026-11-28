@@ -1,6 +1,10 @@
-import type { NoteFolder, NoteTag } from "@prisma/client";
 import type { GaiaTemplateDTO, GaiaNoteRow } from "@/modules/notes/types";
 
+/**
+ * Contrat de réponse public du module Knowledge.
+ * Ces DTO restent indépendants des modèles Prisma et peuvent être consommés
+ * sans importer le client de base de données.
+ */
 export type GaiaNoteRelationDTO = {
   id: string;
   fromNoteId: string;
@@ -82,8 +86,28 @@ export type GaiaInboxItemDTO = {
   createdAt: string;
 };
 
-export type GaiaFolderDTO = NoteFolder & { noteCount: number };
-export type GaiaTagDTO = NoteTag & { noteCount: number };
+/** Public folder shape returned by Knowledge overview endpoints. */
+export type GaiaFolderDTO = {
+  id: string;
+  userId: string;
+  name: string;
+  parentId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  noteCount: number;
+};
+
+/** Public tag shape returned by Knowledge overview endpoints. */
+export type GaiaTagDTO = {
+  id: string;
+  userId: string;
+  name: string;
+  parentId: string | null;
+  relatedIds: string;
+  createdAt: Date;
+  updatedAt: Date;
+  noteCount: number;
+};
 
 export type GaiaActivityWeek = {
   weekStart: string;
