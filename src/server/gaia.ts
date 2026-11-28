@@ -181,7 +181,7 @@ import {
   listTagsQuery,
   updateTagCommand,
 } from "@/modules/notes/services/tags";
-import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT, type NoteRowInput } from "@/modules/notes/services/list";
+import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT } from "@/modules/notes/services/list";
 import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
