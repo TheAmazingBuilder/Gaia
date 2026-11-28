@@ -11,11 +11,20 @@ type SafeParser<T> = {
       };
 };
 
+type ValidationErrorFactory = (
+  message: string,
+  issues?: { path: string; message: string }[],
+) => Error;
+
 /** Parse un input et convertit les problèmes Zod en erreur métier Gaia. */
-export function parseOrThrow<T>(schema: SafeParser<T>, input: unknown): T {
+export function parseOrThrow<T>(
+  schema: SafeParser<T>,
+  input: unknown,
+  makeValidationError: ValidationErrorFactory = validationError,
+): T {
   const parsed = schema.safeParse(input);
   if (!parsed.success) {
-    throw validationError(
+    throw makeValidationError(
       "Some fields are invalid.",
       parsed.error.issues.map((issue) => ({
         path: issue.path.join("."),
