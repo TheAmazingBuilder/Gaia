@@ -9,8 +9,19 @@ import {
   loadActiveNoteTitles,
 } from "@/modules/knowledge/repositories/relations";
 import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
-import type { Note, NoteRelation } from "@prisma/client";
 import { parseOrThrow } from "@/shared/validation/parse-or-throw";
+
+type ActiveNoteRecord = {
+  title: string;
+};
+
+type NoteRelationRecord = {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: string;
+  createdAt: Date;
+};
 
 type RelationDependencies = {
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
@@ -19,12 +30,12 @@ type RelationDependencies = {
   relationNotFound: () => Error;
 };
 
-async function findActiveNote(userId: string, noteId: string): Promise<Note | null> {
+async function findActiveNote(userId: string, noteId: string): Promise<ActiveNoteRecord | null> {
   return findActiveKnowledgeNote(userId, noteId);
 }
 
 function relationToDTO(
-  relation: NoteRelation,
+  relation: NoteRelationRecord,
   direction: "outgoing" | "incoming",
   otherTitle: string,
 ): GaiaNoteRelationDTO {
