@@ -1,4 +1,4 @@
-import { db } from "@/shared/database/client";
+import { loadLinkSuggestionCandidates } from "@/modules/knowledge/repositories/suggestions";
 import {
   parseJsonBlocks,
   parseJsonStringArray,
@@ -27,7 +27,7 @@ export async function getLinkSuggestionsQuery(
 
   const [links, allNotes] = await Promise.all([
     deps.getNoteLinks(userId, noteId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
+    loadLinkSuggestionCandidates(userId),
   ]);
 
   const linkedIds = new Set([
