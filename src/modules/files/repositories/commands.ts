@@ -66,7 +66,7 @@ export async function createFileAnnotationRecord(data: {
   y: number;
   width: number | null;
   height: number | null;
-  type: string;
+  type: "note" | "highlight";
   text: string;
   color: string;
 }) {
