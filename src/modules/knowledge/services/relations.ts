@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { noteRelationInputSchema } from "@/modules/knowledge/schemas";
+import { loadActiveNoteTitles } from "@/modules/knowledge/repositories/relations";
 import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
 import type { Note, NoteRelation } from "@prisma/client";
 import type { z } from "zod";
@@ -59,15 +60,6 @@ function relationToDTO(
   };
 }
 
-async function loadNoteTitles(userId: string, ids: string[]): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  const rows = await db.note.findMany({
-    where: { userId, id: { in: ids }, deletedAt: null },
-    select: { id: true, title: true },
-  });
-  return new Map(rows.map((row) => [row.id, row.title === "" ? "Untitled note" : row.title]));
-}
-
 export async function listNoteRelationsQuery(
   userId: string,
   noteId: string,
@@ -86,7 +78,7 @@ export async function listNoteRelationsQuery(
   const otherIds = mine.map((relation) =>
     relation.fromNoteId === noteId ? relation.toNoteId : relation.fromNoteId,
   );
-  const titles = await loadNoteTitles(userId, otherIds);
+  const titles = await loadActiveNoteTitles(userId, otherIds);
 
   return {
     relations: mine.map((relation) =>
