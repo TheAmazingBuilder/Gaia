@@ -155,7 +155,7 @@ import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQ
 import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
-import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
+import { restoreVersionCommand } from "@/modules/notes/services/versions";
 import {
   moveNoteToMasteryCommand,
   reviewNoteCommand,
@@ -449,20 +449,7 @@ export async function getMemoryStats(
 
 /* ── Versions ────────────────────────────────────────────────────────── */
 
-export async function listVersions(
-  userId: string,
-  noteId: string,
-): Promise<{ versions: GaiaVersionSummary[] }> {
-  return listVersionsQuery(userId, noteId);
-}
-
-export async function getVersion(
-  userId: string,
-  noteId: string,
-  versionId: string,
-): Promise<{ version: GaiaVersionDetail }> {
-  return getVersionQuery(userId, noteId, versionId, VERSION_NOT_FOUND);
-}
+export { listVersions, getVersion } from "@/server/gaia/versions";
 
 export async function restoreVersion(
   userId: string,
