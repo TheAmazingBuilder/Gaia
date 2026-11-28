@@ -47,6 +47,14 @@ export function findActiveNote(userId: string, noteId: string): Promise<Note | n
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
 }
 
+/** Persist spaced-repetition metadata computed by the Notes domain service. */
+export function updateNoteReviewMetadata(
+  noteId: string,
+  data: Prisma.NoteUpdateInput,
+): Promise<Note> {
+  return db.note.update({ where: { id: noteId }, data });
+}
+
 /** Update the last-viewed timestamp after the service has resolved an active owned note. */
 export function updateNoteLastViewed(noteId: string): Promise<Note> {
   return db.note.update({
