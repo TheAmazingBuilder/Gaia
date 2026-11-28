@@ -4,6 +4,7 @@ import { inboxInputSchema } from "@/modules/knowledge/schemas";
 import type { GaiaInboxItemDTO } from "@/modules/knowledge/types";
 import type { GaiaNoteDTO, GaiaNoteResponse } from "@/modules/notes/types";
 import type { InboxItem, Note, NoteFolder, NoteTag } from "@prisma/client";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type InboxDependencies = {
   validationError: (
@@ -28,22 +29,6 @@ function inboxToDTO(row: InboxItem): GaiaInboxItemDTO {
   };
 }
 
-function parseInboxInput(
-  input: unknown,
-  validationError: InboxDependencies["validationError"],
-): { text: string } {
-  const parsed = inboxInputSchema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 export async function listInboxQuery(
   userId: string,
@@ -64,7 +49,7 @@ export async function createInboxItemCommand(
   input: unknown,
   deps: Pick<InboxDependencies, "validationError">,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  const parsed = parseInboxInput(input, deps.validationError);
+  const parsed = parseOrThrow(inboxInputSchema, input, deps.validationError);
   const row = await db.inboxItem.create({
     data: { userId, text: parsed.text.trim() },
   });
