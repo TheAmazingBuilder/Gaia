@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import type { NoteFolder } from "@prisma/client";
 
 export type GaiaFolderInput = {
