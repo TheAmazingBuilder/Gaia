@@ -93,6 +93,7 @@ import {
 } from "@/modules/files/services/lifecycle";
 import {
   getFileQuery,
+  downloadFileQuery,
   getStorageUsageQuery,
   listFilesQuery,
   type ListFilesParams,
@@ -1124,16 +1125,16 @@ export async function downloadFile(
   userId: string,
   fileId: string,
 ): Promise<{ blob: Blob; contentType: string; name: string; size: number }> {
-  if (!isStorageConfigured()) throw STORAGE_NOT_CONFIGURED();
-  const client = getStorageClient();
-  if (!client) throw STORAGE_NOT_CONFIGURED();
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
-  if (!row) throw FILE_NOT_FOUND();
-  const result = await downloadFromStorage(client, row.storagePath);
-  if (!result.ok) {
-    throw new GaiaError("ServiceUnavailable", "STORAGE_DOWNLOAD_FAILED", 503, result.error);
-  }
-  return { blob: result.blob, contentType: result.contentType, name: row.name, size: row.size };
+  return downloadFileQuery(userId, fileId, {
+    fileNotFound: FILE_NOT_FOUND,
+    storageNotConfigured: STORAGE_NOT_CONFIGURED,
+    storageDownloadFailed: (message) =>
+      new GaiaError("ServiceUnavailable", "STORAGE_DOWNLOAD_FAILED", 503, message),
+  }, {
+    isConfigured: isStorageConfigured,
+    getClient: getStorageClient,
+    download: downloadFromStorage,
+  });
 }
 
 /** F10/F12 — enregistrer le texte extrait (calque texte PDF ou OCR). */
