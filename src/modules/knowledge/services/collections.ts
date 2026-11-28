@@ -1,4 +1,12 @@
-import { db } from "@/shared/database/client";
+import {
+  createUserSmartCollection,
+  deleteUserSmartCollection,
+  findUserCollectionFolder,
+  findUserSmartCollection,
+  listUserSmartCollections,
+  loadSmartCollectionNotes,
+  updateUserSmartCollection,
+} from "@/modules/knowledge/repositories/collections";
 import {
   parseJsonBlocks,
   parseJsonStringArray,
@@ -40,7 +48,6 @@ function safeJsonParse(raw: string | null | undefined): unknown {
   }
 }
 
-
 function parseCriteria(raw: string): KnowledgeCollectionCriteria {
   const parsed = gaiaCollectionCriteriaSchema.safeParse(safeJsonParse(raw));
   return parsed.success ? parsed.data : {};
@@ -68,7 +75,7 @@ async function countCollectionNotes(
 ): Promise<number> {
   const [folders, allNotes] = await Promise.all([
     deps.loadFolders(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
+    loadSmartCollectionNotes(userId),
   ]);
   const folderDescendants =
     criteria.folderId != null
@@ -95,10 +102,7 @@ export async function listCollectionsQuery(
   userId: string,
   deps: CollectionDependencies,
 ): Promise<{ collections: GaiaSmartCollectionDTO[] }> {
-  const rows = await db.smartCollection.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
+  const rows = await listUserSmartCollections(userId);
   const collections: GaiaSmartCollectionDTO[] = [];
   for (const row of rows) {
     const criteria = parseCriteria(row.criteria);
@@ -116,19 +120,15 @@ export async function createCollectionCommand(
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
   const parsed = parseOrThrow(collectionInputSchema, input, deps.validationError);
   if (parsed.criteria?.folderId) {
-    const folder = await db.noteFolder.findFirst({
-      where: { userId, id: parsed.criteria.folderId },
-    });
+    const folder = await findUserCollectionFolder(userId, parsed.criteria.folderId);
     if (!folder) throw deps.folderNotFound();
   }
-  const row = await db.smartCollection.create({
-    data: {
-      userId,
-      name: parsed.name.trim(),
-      icon: parsed.icon ?? "📁",
-      criteria: JSON.stringify(parsed.criteria ?? {}),
-    },
-  });
+  const row = await createUserSmartCollection(
+    userId,
+    parsed.name.trim(),
+    parsed.icon ?? "📁",
+    JSON.stringify(parsed.criteria ?? {}),
+  );
   return { collection: collectionToDTO(row, 0) };
 }
 
@@ -139,24 +139,18 @@ export async function updateCollectionCommand(
   deps: CollectionDependencies,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
   const parsed = parseOrThrow(collectionInputSchema, input, deps.validationError);
-  const row = await db.smartCollection.findFirst({
-    where: { userId, id: collectionId },
-  });
+  const row = await findUserSmartCollection(userId, collectionId);
   if (!row) throw deps.collectionNotFound();
   if (parsed.criteria?.folderId) {
-    const folder = await db.noteFolder.findFirst({
-      where: { userId, id: parsed.criteria.folderId },
-    });
+    const folder = await findUserCollectionFolder(userId, parsed.criteria.folderId);
     if (!folder) throw deps.folderNotFound();
   }
-  const updated = await db.smartCollection.update({
-    where: { id: row.id },
-    data: {
-      name: parsed.name.trim(),
-      icon: parsed.icon ?? row.icon,
-      criteria: JSON.stringify(parsed.criteria ?? {}),
-    },
-  });
+  const updated = await updateUserSmartCollection(
+    row.id,
+    parsed.name.trim(),
+    parsed.icon ?? row.icon,
+    JSON.stringify(parsed.criteria ?? {}),
+  );
   const criteria = gaiaCollectionCriteriaSchema.parse(safeJsonParse(updated.criteria)) as KnowledgeCollectionCriteria;
   return {
     collection: collectionToDTO(
@@ -171,11 +165,9 @@ export async function deleteCollectionCommand(
   collectionId: string,
   deps: Pick<CollectionDependencies, "collectionNotFound">,
 ): Promise<{ ok: true }> {
-  const row = await db.smartCollection.findFirst({
-    where: { userId, id: collectionId },
-  });
+  const row = await findUserSmartCollection(userId, collectionId);
   if (!row) throw deps.collectionNotFound();
-  await db.smartCollection.delete({ where: { id: row.id } });
+  await deleteUserSmartCollection(row.id);
   return { ok: true };
 }
 
@@ -190,9 +182,7 @@ export async function listCollectionNotesQuery(
     page,
     pageSize: 50,
   });
-  const row = await db.smartCollection.findFirst({
-    where: { userId, id: collectionId },
-  });
+  const row = await findUserSmartCollection(userId, collectionId);
   if (!row) throw deps.collectionNotFound();
   return {
     notes,
