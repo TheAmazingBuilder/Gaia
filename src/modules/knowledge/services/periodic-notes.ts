@@ -2,16 +2,16 @@ import { db } from "@/lib/db";
 import { newBlockId, type GaiaBlock } from "@/lib/gaia/content";
 import { dailyNoteTitle, weeklyNoteTitle, weekStart } from "@/lib/gaia/knowledge";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
-import type { Note, NoteFolder } from "@prisma/client";
+import type { Note, NoteFolder, NoteTag } from "@prisma/client";
 
 type PeriodicNotesDependencies = {
   loadFolders: (userId: string) => Promise<NoteFolder[]>;
-  loadTags: (userId: string) => Promise<unknown[]>;
+  loadTags: (userId: string) => Promise<NoteTag[]>;
   noteResponse: (
     userId: string,
     note: Note,
     folders: NoteFolder[],
-    tags: Awaited<ReturnType<PeriodicNotesDependencies["loadTags"]>>,
+    tags: NoteTag[],
   ) => Promise<GaiaNoteResponse>;
   createNote: (userId: string, input: unknown) => Promise<GaiaNoteResponse>;
 };
