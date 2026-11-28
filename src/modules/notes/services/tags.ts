@@ -155,7 +155,7 @@ export async function deleteTagCommand(
   tagId: string,
   deps: TagDeleteDependencies,
 ): Promise<{ ok: true }> {
-  const tag = await db.noteTag.findFirst({ where: { userId, id: tagId } });
+  const tag = await findOwnedTag(userId, tagId);
   if (!tag) throw deps.notFound("TAG_NOT_FOUND", "Tag not found.");
   await detachChildTags(userId, tag.id);
   const others = await loadTagsForReferenceCleanup(userId);
