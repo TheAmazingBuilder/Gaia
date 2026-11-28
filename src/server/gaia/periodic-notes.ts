@@ -1,21 +1,26 @@
+import "server-only";
+
 import {
   getOrCreateDailyNoteCommand,
   getOrCreateWeeklyNoteCommand,
 } from "@/modules/knowledge/services/periodic-notes";
+import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
+import { noteResponse } from "@/modules/notes/mappers";
+import { createNote } from "@/server/gaia/notes-write";
 
-type DailyDependencies = Parameters<typeof getOrCreateDailyNoteCommand>[1];
-type WeeklyDependencies = Parameters<typeof getOrCreateWeeklyNoteCommand>[1];
+type PeriodicNotesDependencies = Parameters<typeof getOrCreateDailyNoteCommand>[1];
 
-export function getOrCreateDailyNote(
-  userId: string,
-  deps: DailyDependencies,
-) {
-  return getOrCreateDailyNoteCommand(userId, deps);
+const periodicNotesDependencies: PeriodicNotesDependencies = {
+  loadFolders,
+  loadTags,
+  noteResponse,
+  createNote,
+};
+
+export function getOrCreateDailyNote(userId: string) {
+  return getOrCreateDailyNoteCommand(userId, periodicNotesDependencies);
 }
 
-export function getOrCreateWeeklyNote(
-  userId: string,
-  deps: WeeklyDependencies,
-) {
-  return getOrCreateWeeklyNoteCommand(userId, deps);
+export function getOrCreateWeeklyNote(userId: string) {
+  return getOrCreateWeeklyNoteCommand(userId, periodicNotesDependencies);
 }
