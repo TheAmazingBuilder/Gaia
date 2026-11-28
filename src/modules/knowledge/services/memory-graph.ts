@@ -1,4 +1,4 @@
-import { db } from "@/shared/database/client";
+import { loadMemoryGraphNotes, loadMemoryGraphRelations } from "@/modules/knowledge/repositories/memory-graph";
 import {
   flattenBlocks,
   parseJsonBlocks,
@@ -22,19 +22,7 @@ export async function getMemoryGraphQuery(
   userId: string,
   deps: MemoryGraphDependencies,
 ): Promise<GaiaMemoryGraphResponse> {
-  const notes = await db.note.findMany({
-    where: { userId, deletedAt: null },
-    select: {
-      id: true,
-      title: true,
-      mastery: true,
-      folderId: true,
-      tagIds: true,
-      blocks: true,
-      createdAt: true,
-    },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-  });
+  const notes = await loadMemoryGraphNotes(userId);
   const ids = new Set(notes.map((note) => note.id));
   const nodes: GaiaMemoryGraphNode[] = notes.map((note) => ({
     id: note.id,
@@ -88,7 +76,7 @@ export async function getMemoryGraphQuery(
     if (tagEdges >= MAX_TAG_EDGES) break;
   }
 
-  const relations = await db.noteRelation.findMany({ where: { userId } });
+  const relations = await loadMemoryGraphRelations(userId);
   const relationTypes = [...new Set(relations.map((relation) => relation.type))].sort();
   for (const relation of relations) {
     if (!ids.has(relation.fromNoteId) || !ids.has(relation.toNoteId)) continue;
