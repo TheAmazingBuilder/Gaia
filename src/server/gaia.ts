@@ -81,12 +81,9 @@ export {
 } from "@/server/gaia/files";
 
 import type {
-  GaiaKnowledgeTimelineMonth,
   GaiaNoteRelationDTO,
   GaiaNoteLinksResponse,
   GaiaLinkSuggestion,
-  GaiaMemoryGraphResponse,
-  GaiaMemoryStatsResponse,
 } from "@/modules/knowledge/types";
 export type {
   GaiaKnowledgeTimelineMonth,
