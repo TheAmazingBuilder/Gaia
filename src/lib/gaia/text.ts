@@ -1,4 +1,4 @@
-import type { GaiaBlock } from "@/lib/gaia/content";
+import type { GaiaBlock } from "./block-schema";
 import { stripInlineMarkers } from "./inline";
 import { flattenBlocks } from "./tree";
 
