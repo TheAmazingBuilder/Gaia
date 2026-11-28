@@ -1,4 +1,10 @@
-import { db } from "@/shared/database/client";
+import {
+  deleteNoteVersionHistory,
+  deleteOwnedNote,
+  findNoteForTrash,
+  findOwnedNote,
+  setNoteDeletedAt,
+} from "@/modules/notes/repositories/notes";
 
 type NoteLifecycleErrors = {
   noteNotFound: () => Error;
@@ -12,15 +18,10 @@ export async function trashNoteCommand(
   noteId: string,
   errors: NoteLifecycleErrors,
 ): Promise<{ ok: true }> {
-  const note = await db.note.findFirst({
-    where: { userId, id: noteId, deletedAt: null },
-  });
+  const note = await findNoteForTrash(userId, noteId);
   if (!note) throw errors.noteNotFound();
 
-  await db.note.update({
-    where: { id: note.id },
-    data: { deletedAt: new Date() },
-  });
+  await setNoteDeletedAt(note.id, new Date());
   return { ok: true };
 }
 
@@ -32,15 +33,10 @@ export async function restoreNoteCommand(
   noteId: string,
   errors: NoteLifecycleErrors,
 ): Promise<{ ok: true }> {
-  const note = await db.note.findFirst({
-    where: { userId, id: noteId },
-  });
+  const note = await findOwnedNote(userId, noteId);
   if (!note || note.deletedAt === null) throw errors.noteNotFound();
 
-  await db.note.update({
-    where: { id: note.id },
-    data: { deletedAt: null, updatedAt: new Date() },
-  });
+  await setNoteDeletedAt(note.id, null, new Date());
   return { ok: true };
 }
 
@@ -52,14 +48,10 @@ export async function purgeNoteCommand(
   noteId: string,
   errors: NoteLifecycleErrors,
 ): Promise<{ ok: true }> {
-  const note = await db.note.findFirst({
-    where: { userId, id: noteId },
-  });
+  const note = await findOwnedNote(userId, noteId);
   if (!note || note.deletedAt === null) throw errors.noteNotFound();
 
-  await db.noteVersion.deleteMany({
-    where: { userId, noteId: note.id },
-  });
-  await db.note.delete({ where: { id: note.id } });
+  await deleteNoteVersionHistory(userId, note.id);
+  await deleteOwnedNote(note.id);
   return { ok: true };
 }
