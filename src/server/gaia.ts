@@ -112,8 +112,6 @@ import {
   listNoteRelations as listNoteRelationsAdapter,
 } from "@/server/gaia/knowledge-navigation";
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
-import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-import { noteResponse } from "@/modules/notes/mappers";
 import {
   purgeNote,
   restoreNote,
@@ -158,7 +156,6 @@ export type { GaiaRefHit } from "@/server/gaia/references";
 
 /* ── Erreurs ─────────────────────────────────────────────────────────── */
 
-import { notFound } from "@/shared/errors/gaia-error";
 export { GaiaError } from "@/shared/errors/gaia-error";
 
 
