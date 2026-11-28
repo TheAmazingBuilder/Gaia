@@ -39,3 +39,15 @@ export const canvasInputSchema = z.object({
 export const inboxInputSchema = z.object({
   text: z.string().min(1).max(2000),
 });
+
+/** Input validation for Knowledge folders and hierarchical tags. */
+export const folderInputSchema = z.object({
+  name: z.string().min(1).max(80),
+  parentId: z.string().nullable().optional(),
+});
+
+export const tagInputSchema = z.object({
+  name: z.string().max(80),
+  parentId: z.string().nullable().optional(),
+  relatedIds: z.array(z.string()).max(24).optional(),
+});
