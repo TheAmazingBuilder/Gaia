@@ -39,10 +39,6 @@ export async function countFileVersions(fileId: string) {
   return db.fileVersion.count({ where: { fileId } });
 }
 
-export async function countFileNoteAssociations(fileId: string) {
-  return db.noteFile.count({ where: { fileId } });
-}
-
 export async function createFileAnnotationRecord(data: {
   fileId: string;
   userId: string;
