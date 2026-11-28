@@ -194,7 +194,6 @@ import {
   parseJsonStringArray,
   searchSnippet,
   textOfBlocks,
-  type GaiaBlock,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
 import { listRefs as listRefsRaw, type GaiaRefHit } from "@/lib/gaia/refs";
@@ -423,8 +422,8 @@ export async function createNote(
     parseBlocks: normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
-    emptyParagraphBlock,
-    assertSafeImageSources,
+    emptyParagraphBlock: createEmptyParagraphBlock,
+    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
     normalizeProperties,
     findTemplate: async (ownerId, templateId) =>
       findTemplateQuery(ownerId, templateId, parseJsonBlocks),
@@ -446,7 +445,7 @@ export async function updateNote(
     noteNotFound: NOTE_NOT_FOUND,
     normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
-    assertSafeImageSources,
+    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
     normalizeProperties,
     maybeSnapshotVersion: createNoteSnapshotIfNeeded,
     noteResponse: async (ownerId, note) => {
@@ -499,8 +498,8 @@ export async function duplicateNote(
     parseBlocks: normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
-    emptyParagraphBlock,
-    assertSafeImageSources,
+    emptyParagraphBlock: createEmptyParagraphBlock,
+    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
     normalizeProperties,
     findTemplate: async (ownerId, templateId) =>
       findTemplateQuery(ownerId, templateId, parseJsonBlocks),
@@ -715,8 +714,8 @@ export async function createTemplate(
     parseBlocks: normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
-    emptyParagraphBlock,
-    assertSafeImageSources,
+    emptyParagraphBlock: createEmptyParagraphBlock,
+    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
     findActiveNote,
     createNote,
   });
@@ -733,8 +732,8 @@ export async function instantiateTemplate(
     parseBlocks: normalizeBlocks,
     parseStoredBlocks: parseJsonBlocks,
     cloneBlocksWithNewIds,
-    emptyParagraphBlock,
-    assertSafeImageSources,
+    emptyParagraphBlock: createEmptyParagraphBlock,
+    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
     findActiveNote,
     createNote,
   });
