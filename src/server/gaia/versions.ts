@@ -28,7 +28,7 @@ export async function getVersion(
 import { restoreVersionCommand } from "@/modules/notes/services/versions";
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
-import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
+import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 import { noteResponse } from "@/modules/notes/mappers";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
 
