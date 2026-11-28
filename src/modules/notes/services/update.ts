@@ -4,7 +4,7 @@ import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
 import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
 import { collectSyncedTexts, syncTextAcross } from "@/lib/gaia/tree";
 import type { Note } from "@prisma/client";
-import type { z } from "zod";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type UpdateNoteDependencies = {
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
@@ -17,23 +17,6 @@ type UpdateNoteDependencies = {
   noteResponse: (userId: string, note: Note) => Promise<GaiaNoteResponse>;
 };
 
-function parseOrThrow<T>(
-  schema: { safeParse: (input: unknown) => { success: true; data: T } | { success: false; error: z.ZodError } },
-  input: unknown,
-  validationError: UpdateNoteDependencies["validationError"],
-): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 /** Propagate edits to matching synced blocks in the user's other active notes. */
 async function propagateSyncedBlocks(
