@@ -1,11 +1,7 @@
 import { loadNoteLinkCandidates } from "@/modules/knowledge/repositories/links";
-import {
-  excerptOf,
-  flattenBlocks,
-  parseJsonBlocks,
-  searchSnippet,
-  textOfBlocks,
-} from "@/lib/gaia/content";
+import { flattenBlocks } from "@/lib/gaia/tree";
+import { parseJsonBlocks } from "@/lib/gaia/block-serialization";
+import { excerptOf, searchSnippet, textOfBlocks } from "@/lib/gaia/text";
 import type { GaiaNoteLinksResponse } from "@/modules/knowledge/types";
 import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
 import type { GaiaNoteRow } from "@/modules/notes/types";
