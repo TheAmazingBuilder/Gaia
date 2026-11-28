@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
 import type {
   fileAnnotationInputSchema,
@@ -9,11 +10,10 @@ import type {
   GaiaFileDTO,
 } from "@/modules/files/types";
 import type { z } from "zod";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type FileTextInput = z.infer<typeof fileTextInputSchema>;
-
-import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
-import type { SupabaseClient } from "@supabase/supabase-js";
+type FileAnnotationInput = z.infer<typeof fileAnnotationInputSchema>;
 
 type CreateFileInput = {
   name: string;
@@ -90,16 +90,18 @@ export async function createFileCommand(
         versions: { create: { version: 1, storagePath: path, size: input.size } },
       },
     });
-    return { file: fileToDTO(row, folderId ? (await db.noteFolder.findFirst({
-      where: { userId, id: folderId },
-      select: { name: true },
-    }))?.name ?? null : null, 1, 0) };
+    const folder = folderId
+      ? await db.noteFolder.findFirst({
+          where: { userId, id: folderId },
+          select: { name: true },
+        })
+      : null;
+    return { file: fileToDTO(row, folder?.name ?? null, 1, 0) };
   } catch (error) {
     await storage.remove(client, [path]);
     throw error;
   }
 }
-type FileAnnotationInput = z.infer<typeof fileAnnotationInputSchema>;
 
 type FileCommandErrors = {
   fileNotFound: () => Error;
