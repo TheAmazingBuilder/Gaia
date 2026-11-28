@@ -108,3 +108,25 @@ export type GaiaOverviewResponse = {
   activity: GaiaActivityWeek[];
   templates: GaiaTemplateDTO[];
 };
+
+export type GaiaMemoryGraphNode = {
+  id: string;
+  title: string;
+  mastery: import("@/lib/gaia/spaced-repetition").MasteryLevel;
+  folderId: string | null;
+  orphan: boolean;
+};
+
+export type GaiaMemoryGraphEdge = {
+  from: string;
+  to: string;
+  kind: "ref" | "tag" | "relation";
+  tagName?: string;
+  label?: string;
+};
+
+export type GaiaMemoryGraphResponse = {
+  nodes: GaiaMemoryGraphNode[];
+  edges: GaiaMemoryGraphEdge[];
+  relationTypes: string[];
+};
