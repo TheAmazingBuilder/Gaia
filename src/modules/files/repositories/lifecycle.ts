@@ -96,17 +96,8 @@ export async function findFileVersion(fileId: string, version: number) {
   });
 }
 
-export async function loadFileLifecycleMetadata(userId: string, fileId: string, folderId: string | null) {
-  const [folder, noteCount] = await Promise.all([
-    folderId
-      ? db.noteFolder.findFirst({
-          where: { userId, id: folderId },
-          select: { name: true },
-        })
-      : Promise.resolve(null),
-    db.noteFile.count({ where: { fileId } }),
-  ]);
-  return { folder, noteCount };
+export async function loadFileLifecycleMetadata(fileId: string) {
+  return db.noteFile.count({ where: { fileId } });
 }
 
 /**
