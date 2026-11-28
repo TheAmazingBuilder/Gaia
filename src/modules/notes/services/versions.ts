@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { countWords, parseJsonBlocks } from "@/lib/gaia/content";
 import { sortVersionsNewestFirst } from "@/lib/gaia/versioning";
 import type {
