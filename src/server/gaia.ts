@@ -216,6 +216,7 @@ import {
 } from "@/lib/gaia/spaced-repetition";
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import { normalizeProperties } from "@/modules/notes/normalization";
+import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
 import {
   isDescendantOf,
@@ -399,25 +400,7 @@ function emptyParagraphBlock(): GaiaBlock {
   return { id: newBlockId(), type: "paragraph", text: "" };
 }
 
-async function loadFolders(userId: string): Promise<NoteFolder[]> {
-  return db.noteFolder.findMany({
-    where: { userId },
-    orderBy: { name: "asc" },
-  });
-}
 
-async function loadTags(userId: string): Promise<NoteTag[]> {
-  return db.noteTag.findMany({ where: { userId } });
-}
-
-
-async function findActiveNote(userId: string, noteId: string): Promise<Note | null> {
-  return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
-}
-
-async function findNoteAnyState(userId: string, noteId: string): Promise<Note | null> {
-  return db.note.findFirst({ where: { userId, id: noteId } });
-}
 
 /* ── Notes : lecture ─────────────────────────────────────────────────── */
 
