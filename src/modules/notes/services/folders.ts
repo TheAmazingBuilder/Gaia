@@ -1,4 +1,14 @@
-import { db } from "@/shared/database/client";
+import {
+  countActiveNotesInFolder,
+  createNoteFolder,
+  deleteNoteFolder,
+  findOwnedFolder,
+  loadActiveNoteFolderAssignments,
+  loadFolders as loadNoteFolders,
+  reparentChildFolders,
+  unassignNotesFromFolder,
+  updateNoteFolder,
+} from "@/modules/notes/repositories/notes";
 import type { NoteFolder } from "@prisma/client";
 
 export type GaiaFolderInput = {
@@ -23,13 +33,13 @@ function nameKeyOf(name: string): string {
 }
 
 async function loadFolders(userId: string): Promise<NoteFolder[]> {
-  return db.noteFolder.findMany({ where: { userId }, orderBy: { name: "asc" } });
+  return loadNoteFolders(userId);
 }
 
 export async function listFoldersQuery(userId: string): Promise<{ folders: GaiaFolderDTO[] }> {
   const [folders, notes] = await Promise.all([
     loadFolders(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
+    loadActiveNoteFolderAssignments(userId),
   ]);
   return {
     folders: folders.map((folder) => ({
@@ -60,7 +70,7 @@ export async function createFolderCommand(
     if (!parent) throw deps.folderNotFound();
     parentId = parent.id;
   }
-  const folder = await db.noteFolder.create({ data: { userId, name, parentId } });
+  const folder = await createNoteFolder({ userId, name, parentId });
   return { ...folder, noteCount: 0 };
 }
 
@@ -76,7 +86,7 @@ export async function updateFolderCommand(
       { path: "name", message: "The folder name is required." },
     ]);
   }
-  const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
+  const folder = await findOwnedFolder(userId, folderId);
   if (!folder) throw deps.folderNotFound();
   const folders = await loadFolders(userId);
   if (folders.some((item) => item.id !== folder.id && nameKeyOf(item.name) === nameKeyOf(name))) {
@@ -95,9 +105,9 @@ export async function updateFolderCommand(
       parentId = parent.id;
     }
   }
-  const updated = await db.noteFolder.update({
-    where: { id: folder.id },
-    data: { name, ...(parentId !== undefined ? { parentId } : {}) },
+  const updated = await updateNoteFolder(folder.id, {
+    name,
+    ...(parentId !== undefined ? { parentId } : {}),
   });
   const noteCount = await db.note.count({
     where: { userId, folderId: folder.id, deletedAt: null },
@@ -113,14 +123,8 @@ export async function deleteFolderCommand(
   const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
   if (!folder) throw folderNotFound();
   // Preserve the existing behavior: child folders are reparented and notes become unfiled.
-  await db.noteFolder.updateMany({
-    where: { userId, parentId: folder.id },
-    data: { parentId: folder.parentId ?? null },
-  });
-  await db.note.updateMany({
-    where: { userId, folderId: folder.id },
-    data: { folderId: null },
-  });
-  await db.noteFolder.delete({ where: { id: folder.id } });
+  await reparentChildFolders(userId, folder.id, folder.parentId ?? null);
+  await unassignNotesFromFolder(userId, folder.id);
+  await deleteNoteFolder(folder.id);
   return { ok: true };
 }
