@@ -80,3 +80,33 @@ export type GaiaInboxItemDTO = {
   noteId: string | null;
   createdAt: string;
 };
+
+import type { NoteFolder, NoteTag } from "@prisma/client";
+import type { GaiaTemplateDTO, GaiaNoteRow } from "@/modules/notes/types";
+
+export type GaiaFolderDTO = NoteFolder & { noteCount: number };
+export type GaiaTagDTO = NoteTag & { noteCount: number };
+
+export type GaiaActivityWeek = {
+  weekStart: string;
+  created: number;
+  edited: number;
+};
+
+export type GaiaOverviewResponse = {
+  totals: {
+    notes: number;
+    createdThisWeek: number;
+    favorites: number;
+    folders: number;
+    tags: number;
+    trashed: number;
+  };
+  recentEdited: GaiaNoteRow[];
+  recentViewed: GaiaNoteRow[];
+  favorites: GaiaNoteRow[];
+  folders: GaiaFolderDTO[];
+  topTags: GaiaTagDTO[];
+  activity: GaiaActivityWeek[];
+  templates: GaiaTemplateDTO[];
+};
