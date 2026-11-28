@@ -1,4 +1,9 @@
-import { db } from "@/shared/database/client";
+import {
+  loadDailyWordGoal,
+  loadNotesTouchedBetween,
+  loadUserTimezone,
+  saveDailyWordGoal,
+} from "@/modules/notes/repositories/notes";
 import { countWords, parseJsonBlocks } from "@/lib/gaia/content";
 import { writingSettingsInputSchema } from "@/modules/notes/schemas";
 
@@ -14,10 +19,7 @@ export type GaiaTodayWords = {
 export async function getWritingSettingsQuery(
   userId: string,
 ): Promise<GaiaWritingSettings> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { dailyWordGoal: true },
-  });
+  const user = await loadDailyWordGoal(userId);
   return { dailyWordGoal: user?.dailyWordGoal ?? 0 };
 }
 
@@ -27,11 +29,7 @@ export async function updateWritingSettingsCommand(
   input: unknown,
 ): Promise<GaiaWritingSettings> {
   const parsed = writingSettingsInputSchema.parse(input);
-  const user = await db.user.update({
-    where: { id: userId },
-    data: { dailyWordGoal: parsed.dailyWordGoal },
-    select: { dailyWordGoal: true },
-  });
+  const user = await saveDailyWordGoal(userId, parsed.dailyWordGoal);
   return { dailyWordGoal: user.dailyWordGoal };
 }
 
@@ -41,10 +39,7 @@ export async function updateWritingSettingsCommand(
  * full contents of notes touched today, not a word-by-word content diff.
  */
 export async function getTodayWordsQuery(userId: string): Promise<GaiaTodayWords> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
-  });
+  const user = await loadUserTimezone(userId);
   const tz = user?.timezone ?? "UTC";
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -65,17 +60,7 @@ export async function getTodayWordsQuery(userId: string): Promise<GaiaTodayWords
   })();
   const start = new Date(dayStart.getTime() + tzOffsetMs);
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  const notes = await db.note.findMany({
-    where: {
-      userId,
-      deletedAt: null,
-      OR: [
-        { createdAt: { gte: start, lt: end } },
-        { updatedAt: { gte: start, lt: end } },
-      ],
-    },
-    select: { blocks: true },
-  });
+  const notes = await loadNotesTouchedBetween(userId, start, end);
   let wordsToday = 0;
   for (const note of notes) wordsToday += countWords(parseJsonBlocks(note.blocks));
   return { wordsToday, notesTouchedToday: notes.length, date: `${y}-${m}-${d}` };
