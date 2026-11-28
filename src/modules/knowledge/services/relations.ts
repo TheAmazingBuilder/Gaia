@@ -1,6 +1,11 @@
-import { db } from "@/shared/database/client";
+
 import { noteRelationInputSchema } from "@/modules/knowledge/schemas";
 import {
+  createUserNoteRelation,
+  deleteUserNoteRelation,
+  findActiveKnowledgeNote,
+  findUserNoteRelation,
+  findUserNoteRelationById,
   listUserRelations,
   loadActiveNoteTitles,
 } from "@/modules/knowledge/repositories/relations";
@@ -16,7 +21,7 @@ type RelationDependencies = {
 };
 
 async function findActiveNote(userId: string, noteId: string): Promise<Note | null> {
-  return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+  return findActiveKnowledgeNote(userId, noteId);
 }
 
 function relationToDTO(
@@ -82,16 +87,12 @@ export async function createNoteRelationCommand(
   }
 
   const type = parsed.type.trim();
-  const existing = await db.noteRelation.findFirst({
-    where: { userId, fromNoteId: noteId, toNoteId: parsed.toNoteId, type },
-  });
+  const existing = await findUserNoteRelation(userId, noteId, parsed.toNoteId, type);
   if (existing) {
     throw deps.conflictError("RELATION_EXISTS", "This relation already exists.");
   }
 
-  const relation = await db.noteRelation.create({
-    data: { userId, fromNoteId: noteId, toNoteId: parsed.toNoteId, type },
-  });
+  const relation = await createUserNoteRelation(userId, noteId, parsed.toNoteId, type);
   return {
     relation: relationToDTO(
       relation,
@@ -107,12 +108,10 @@ export async function deleteNoteRelationCommand(
   relationId: string,
   deps: Pick<RelationDependencies, "relationNotFound">,
 ): Promise<{ ok: true }> {
-  const relation = await db.noteRelation.findFirst({
-    where: { userId, id: relationId },
-  });
+  const relation = await findUserNoteRelationById(userId, relationId);
   if (!relation || (relation.fromNoteId !== noteId && relation.toNoteId !== noteId)) {
     throw deps.relationNotFound();
   }
-  await db.noteRelation.delete({ where: { id: relation.id } });
+  await deleteUserNoteRelation(relation.id);
   return { ok: true };
 }
