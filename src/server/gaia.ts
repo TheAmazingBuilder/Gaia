@@ -347,25 +347,6 @@ export type {
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
-function normalizeTagName(name: string): string {
-  return name.trim().replace(/^#/, "");
-}
-
-function nameKeyOf(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-/** Parses a JSON string; anything invalid becomes null. */
-function safeJsonParse(raw: string | null | undefined): unknown {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-
 
 
 
