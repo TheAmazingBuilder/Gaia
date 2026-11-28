@@ -136,19 +136,6 @@ import {
 } from "@/modules/notes/services/templates";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { getNoteQuery } from "@/modules/notes/services/details";
-import {
-  createFolderCommand,
-  deleteFolderCommand,
-  listFoldersQuery,
-  updateFolderCommand,
-  type GaiaFolderInput,
-} from "@/modules/notes/services/folders";
-import {
-  createTagCommand,
-  deleteTagCommand,
-  listTagsQuery,
-  updateTagCommand,
-} from "@/modules/notes/services/tags";
 import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
 import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
@@ -180,12 +167,10 @@ import {
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import { normalizeProperties } from "@/modules/notes/normalization";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-import { folderInputSchema, tagInputSchema } from "@/modules/knowledge/schemas";
 import { assertSafeImageSources } from "@/modules/notes/content-validation";
 import { createEmptyParagraphBlock } from "@/modules/notes/services/block-copy";
 import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
 import {
-  isDescendantOf,
   suggestLinks,
   tokenize,
   weekStart,
@@ -227,11 +212,7 @@ export { gaiaErrorResponse } from "@/shared/http/gaia-error-response";
 
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
 
-import type {
-  GaiaFolderDTO,
-  GaiaTagDTO,
-  GaiaOverviewResponse,
-} from "@/modules/knowledge/types";
+import type { GaiaOverviewResponse } from "@/modules/knowledge/types";
 export type {
   GaiaFolderDTO,
   GaiaTagDTO,
@@ -466,76 +447,16 @@ export async function restoreVersion(
   });
 }
 
-/* ── Dossiers ────────────────────────────────────────────────────────── */
-
-export async function listFolders(userId: string): Promise<{ folders: GaiaFolderDTO[] }> {
-  return listFoldersQuery(userId);
-}
-
-export async function createFolder(userId: string, input: unknown): Promise<GaiaFolderDTO> {
-  const parsed = parseOrThrow(folderInputSchema, input);
-  return createFolderCommand(userId, parsed, {
-    folderNotFound: FOLDER_NOT_FOUND,
-    validationError,
-    conflictError,
-  });
-}
-
-export async function updateFolder(
-  userId: string,
-  folderId: string,
-  input: unknown,
-): Promise<GaiaFolderDTO> {
-  const parsed = parseOrThrow(folderInputSchema, input);
-  return updateFolderCommand(userId, folderId, parsed, {
-    folderNotFound: FOLDER_NOT_FOUND,
-    validationError,
-    conflictError,
-    isDescendantOf,
-  });
-}
-
-export async function deleteFolder(userId: string, folderId: string): Promise<{ ok: true }> {
-  return deleteFolderCommand(userId, folderId, FOLDER_NOT_FOUND);
-}
-
-/* ── Tags ────────────────────────────────────────────────────────────── */
-
-export async function listTags(userId: string): Promise<{ tags: GaiaTagDTO[] }> {
-  return listTagsQuery(userId, parseJsonStringArray);
-}
-
-export async function createTag(userId: string, input: unknown): Promise<GaiaTagDTO> {
-  const parsed = parseOrThrow(tagInputSchema, input);
-  return createTagCommand(userId, parsed, {
-    notFound: (code, message) => notFound(code, message),
-    validationError,
-    conflictError,
-    parseJsonStringArray,
-  });
-}
-
-export async function updateTag(
-  userId: string,
-  tagId: string,
-  input: unknown,
-): Promise<GaiaTagDTO> {
-  const parsed = parseOrThrow(tagInputSchema, input);
-  return updateTagCommand(userId, tagId, parsed, {
-    notFound: (code, message) => notFound(code, message),
-    validationError,
-    conflictError,
-    isDescendantOf,
-    parseJsonStringArray,
-  });
-}
-
-export async function deleteTag(userId: string, tagId: string): Promise<{ ok: true }> {
-  return deleteTagCommand(userId, tagId, {
-    notFound: (code, message) => notFound(code, message),
-    parseJsonStringArray,
-  });
-}
+export {
+  listFolders,
+  createFolder,
+  updateFolder,
+  deleteFolder,
+  listTags,
+  createTag,
+  updateTag,
+  deleteTag,
+} from "@/server/gaia/taxonomy";
 
 /* ── Modèles ─────────────────────────────────────────────────────────── */
 
