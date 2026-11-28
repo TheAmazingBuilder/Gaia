@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { noteUpdateInputSchema } from "@/modules/notes/schemas";
 import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
 import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
