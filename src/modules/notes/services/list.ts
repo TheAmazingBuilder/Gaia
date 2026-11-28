@@ -1,4 +1,3 @@
-import { db } from "@/shared/database/client";
 import type { Note, NoteFolder, NoteTag, Prisma } from "@prisma/client";
 import {
   countOpenTodos,
@@ -20,10 +19,13 @@ import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
 import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
 import {
   NOTE_LIST_SELECT,
+  countNotes,
   findUserSmartCollection,
   loadActiveNotesForCollection,
   loadBlocksFor,
   loadFolders,
+  loadNotesMatchingFilters,
+  loadNotesPage,
   loadOverviewNotesQuery,
   loadSearchNotesQuery,
   loadTags,
@@ -205,7 +207,7 @@ export async function listNotesQuery(
 
   const q = (query.q ?? "").trim().toLowerCase();
   if (q !== "") {
-    const scoped = await db.note.findMany({ where });
+    const scoped = await loadNotesMatchingFilters(where);
     const filtered = scoped.filter((note) => {
       const blocks = parseJsonBlocks(note.blocks);
       const tagIds = parseJsonStringArray(note.tagIds);
@@ -229,14 +231,8 @@ export async function listNotesQuery(
   }
 
   const [total, pageRows] = await Promise.all([
-    db.note.count({ where }),
-    db.note.findMany({
-      where,
-      select: NOTE_LIST_SELECT,
-      orderBy: sortOrderBy(query.sort ?? "updated"),
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
+    countNotes(where),
+    loadNotesPage(where, sortOrderBy(query.sort ?? "updated"), (page - 1) * pageSize, pageSize),
   ]);
   const blocksById = await loadBlocksFor(pageRows.map((note) => note.id));
   return {
