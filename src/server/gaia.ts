@@ -215,6 +215,7 @@ import {
   type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
+import { normalizeProperties } from "@/modules/notes/normalization";
 import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
 import {
   isDescendantOf,
@@ -392,21 +393,7 @@ function safeJsonParse(raw: string | null | undefined): unknown {
   }
 }
 
-/** Normalizes properties: trims keys, drops empties, last value wins per key. */
-function normalizeProperties(input: GaiaNoteProperty[]): GaiaNoteProperty[] {
-  const byKey = new Map<string, GaiaNoteProperty>();
-  for (const p of input) {
-    const key = p.key.trim();
-    if (key === "") continue;
-    byKey.set(key.toLowerCase(), {
-      key,
-      value: p.value,
-      type: p.type,
-      ...(p.options ? { options: p.options } : {}),
-    });
-  }
-  return [...byKey.values()];
-}
+
 
 function emptyParagraphBlock(): GaiaBlock {
   return { id: newBlockId(), type: "paragraph", text: "" };
@@ -1198,7 +1185,6 @@ export async function replaceFile(
     upload: uploadToStorage,
   });
 }
-
 /** F13 — restaurer une ancienne version : crée une version qui pointe vers l'ancien binaire. */
 export async function restoreFileVersion(
   userId: string,
