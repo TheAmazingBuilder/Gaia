@@ -42,7 +42,6 @@ import type {
   GaiaNotePropertyType,
   GaiaNoteResponse,
   GaiaNoteRow,
-  GaiaTemplateDTO,
 } from "@/modules/notes/types";
 export type {
   GaiaNoteDTO,
