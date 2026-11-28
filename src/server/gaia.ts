@@ -198,8 +198,6 @@ import {
   gaiaRefKindSchema,
   isSafeEmbedUrl,
   isSafeImageSrc,
-  newBlockId,
-  newSyncId,
   normalizeBlocks,
   parseJsonBlocks,
   parseJsonStringArray,
@@ -216,6 +214,7 @@ import {
   type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
+import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
 import {
   isDescendantOf,
   suggestLinks,
@@ -380,30 +379,6 @@ function normalizeTagName(name: string): string {
 
 function nameKeyOf(name: string): string {
   return name.trim().toLowerCase();
-}
-
-/**
- * Clone profond avec nouveaux ids. Les groupes synchronisés sont
- * re-liés entre eux dans la copie (même ancien syncId → même nouveau
- * syncId) mais coupés de l'original : une note dupliquée est indépendante.
- */
-function cloneBlocksWithNewIds(blocks: GaiaBlock[]): GaiaBlock[] {
-  const syncMap = new Map<string, string>();
-  const cloneOne = (block: GaiaBlock): GaiaBlock => {
-    const next: GaiaBlock = { ...block, id: newBlockId() };
-    if (block.type === "synced" && block.syncId) {
-      let fresh = syncMap.get(block.syncId);
-      if (!fresh) {
-        fresh = newSyncId();
-        syncMap.set(block.syncId, fresh);
-      }
-      next.syncId = fresh;
-    }
-    if (block.children) next.children = block.children.map(cloneOne);
-    if (block.columns) next.columns = block.columns.map((col) => col.map(cloneOne));
-    return next;
-  };
-  return blocks.map(cloneOne);
 }
 
 /** Parses a JSON string; anything invalid becomes null. */
