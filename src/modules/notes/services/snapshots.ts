@@ -1,4 +1,8 @@
-import { db } from "@/shared/database/client";
+import {
+  createNoteVersionSnapshot,
+  deleteNoteVersions,
+  loadNoteVersionsForSnapshot,
+} from "@/modules/notes/repositories/notes";
 import {
   shouldSnapshot,
   sortVersionsNewestFirst,
@@ -14,29 +18,21 @@ export async function createNoteSnapshotIfNeeded(
   userId: string,
   note: Note,
 ): Promise<void> {
-  const versions = await db.noteVersion.findMany({
-    where: { userId, noteId: note.id },
-  });
+  const versions = await loadNoteVersionsForSnapshot(userId, note.id);
   const newest = sortVersionsNewestFirst(versions)[0] ?? null;
   if (!shouldSnapshot(newest ? newest.savedAt : null, new Date())) return;
 
-  await db.noteVersion.create({
-    data: {
-      userId,
-      noteId: note.id,
-      title: note.title,
-      blocks: note.blocks,
-      savedAt: note.updatedAt,
-    },
+  await createNoteVersionSnapshot({
+    userId,
+    noteId: note.id,
+    title: note.title,
+    blocks: note.blocks,
+    savedAt: note.updatedAt,
   });
 
-  const after = await db.noteVersion.findMany({
-    where: { userId, noteId: note.id },
-  });
+  const after = await loadNoteVersionsForSnapshot(userId, note.id);
   const extra = versionsBeyondCap(sortVersionsNewestFirst(after));
   if (extra.length > 0) {
-    await db.noteVersion.deleteMany({
-      where: { userId, id: { in: extra } },
-    });
+    await deleteNoteVersions(userId, extra);
   }
 }
