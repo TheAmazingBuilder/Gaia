@@ -15,6 +15,17 @@ import {
   noteDuplicateInputSchema,
 } from "@/modules/notes/schemas";
 export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
+import type { GaiaSmartCollectionDTO } from "@/modules/knowledge/types";
+export type { GaiaSmartCollectionDTO } from "@/modules/knowledge/types";
+import { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
+export { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
+import {
+  listCollectionsQuery,
+  createCollectionCommand,
+  updateCollectionCommand,
+  deleteCollectionCommand,
+  listCollectionNotesQuery,
+} from "@/modules/knowledge/services/collections";
 import type {
   GaiaNoteDTO,
   GaiaNoteProperty,
@@ -44,7 +55,6 @@ import type {
   NoteTag,
   NoteVersion,
   Prisma,
-  SmartCollection,
 } from "@prisma/client";
 import type {
   GaiaFileAnnotationDTO,
@@ -189,16 +199,12 @@ import {
   versionsBeyondCap,
 } from "@/lib/gaia/versioning";
 import {
-  buildTree,
   dailyNoteTitle,
-  descendantIds,
   isDescendantOf,
-  matchCollectionCriteria,
   suggestLinks,
   tokenize,
   weeklyNoteTitle,
   weekStart,
-  type KnowledgeCollectionCriteria,
 } from "@/lib/gaia/knowledge";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import {
@@ -283,32 +289,12 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 /* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
-export const gaiaCollectionCriteriaSchema = z.object({
-  folderId: z.string().nullable().optional(),
-  tagIds: z.array(z.string()).max(24).optional(),
-  mastery: z.string().max(20).optional(),
-  favorite: z.boolean().optional(),
-  q: z.string().max(200).optional(),
-  properties: z
-    .array(
-      z.object({ key: z.string().min(1).max(40), value: z.string().max(500) }),
-    )
-    .max(12)
-    .optional(),
-});
-
 const canvasItemSchema = z.object({
   noteId: z.string().min(1),
   x: z.number().min(-100).max(5000),
   y: z.number().min(-100).max(5000),
   w: z.number().min(120).max(1200).optional(),
   h: z.number().min(80).max(1200).optional(),
-});
-
-const collectionInputSchema = z.object({
-  name: z.string().min(1).max(120),
-  icon: z.string().max(16).optional(),
-  criteria: gaiaCollectionCriteriaSchema.optional(),
 });
 
 const canvasInputSchema = z.object({
@@ -375,16 +361,6 @@ export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
 
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
-
-export type GaiaSmartCollectionDTO = {
-  id: string;
-  name: string;
-  icon: string;
-  criteria: KnowledgeCollectionCriteria;
-  noteCount: number;
-  createdAt: string;
-  updatedAt: string;
-};
 
 export type GaiaCanvasItemDTO = {
   noteId: string;
@@ -1636,98 +1612,26 @@ export async function getKnowledgeTimeline(
 
 // ── K06 — Collections dynamiques ──────────────────────────────────────
 
-function collectionToDTO(
-  row: SmartCollection,
-  noteCount: number,
-): GaiaSmartCollectionDTO {
-  const criteria = gaiaCollectionCriteriaSchema.safeParse(
-    safeJsonParse(row.criteria),
-  ).success
-    ? (gaiaCollectionCriteriaSchema.parse(
-        safeJsonParse(row.criteria),
-      ) as KnowledgeCollectionCriteria)
-    : {};
-  return {
-    id: row.id,
-    name: row.name,
-    icon: row.icon,
-    criteria,
-    noteCount,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
-async function countCollectionNotes(
-  userId: string,
-  criteria: KnowledgeCollectionCriteria,
-): Promise<number> {
-  const [folders, allNotes] = await Promise.all([
-    loadFolders(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-  const folderDescendants =
-    criteria.folderId != null
-      ? descendantIds(buildTree(folders), criteria.folderId, false)
-      : [];
-  return allNotes.filter((note) =>
-    matchCollectionCriteria(
-      {
-        folderId: note.folderId,
-        tagIds: parseJsonStringArray(note.tagIds),
-        mastery: note.mastery,
-        favorite: note.favorite,
-        title: note.title,
-        text: textOfBlocks(parseJsonBlocks(note.blocks)),
-        properties: parseJsonProperties(note.properties),
-      },
-      criteria,
-      folderDescendants,
-    ),
-  ).length;
-}
+const collectionDependencies = () => ({
+  validationError,
+  collectionNotFound: () => notFound("COLLECTION_NOT_FOUND", "Collection not found."),
+  folderNotFound: FOLDER_NOT_FOUND,
+  loadFolders,
+  parseJsonProperties,
+  listNotes,
+});
 
 export async function listCollections(
   userId: string,
 ): Promise<{ collections: GaiaSmartCollectionDTO[] }> {
-  const rows = await db.smartCollection.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
-  const collections: GaiaSmartCollectionDTO[] = [];
-  for (const row of rows) {
-    const criteria = gaiaCollectionCriteriaSchema.safeParse(
-      safeJsonParse(row.criteria),
-    ).success
-      ? (gaiaCollectionCriteriaSchema.parse(
-          safeJsonParse(row.criteria),
-        ) as KnowledgeCollectionCriteria)
-      : {};
-    collections.push(collectionToDTO(row, await countCollectionNotes(userId, criteria)));
-  }
-  return { collections };
+  return listCollectionsQuery(userId, collectionDependencies());
 }
 
 export async function createCollection(
   userId: string,
   input: unknown,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  const parsed = parseOrThrow(collectionInputSchema, input);
-  if (parsed.criteria?.folderId) {
-    const folder = await db.noteFolder.findFirst({
-      where: { userId, id: parsed.criteria.folderId },
-    });
-    if (!folder) throw FOLDER_NOT_FOUND();
-  }
-  const row = await db.smartCollection.create({
-    data: {
-      userId,
-      name: parsed.name.trim(),
-      icon: parsed.icon ?? "📁",
-      criteria: JSON.stringify(parsed.criteria ?? {}),
-    },
-  });
-  return { collection: collectionToDTO(row, 0) };
+  return createCollectionCommand(userId, input, collectionDependencies());
 }
 
 export async function updateCollection(
@@ -1735,39 +1639,14 @@ export async function updateCollection(
   collectionId: string,
   input: unknown,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  const parsed = parseOrThrow(collectionInputSchema, input);
-  const row = await db.smartCollection.findFirst({ where: { userId, id: collectionId } });
-  if (!row) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
-  if (parsed.criteria?.folderId) {
-    const folder = await db.noteFolder.findFirst({
-      where: { userId, id: parsed.criteria.folderId },
-    });
-    if (!folder) throw FOLDER_NOT_FOUND();
-  }
-  const updated = await db.smartCollection.update({
-    where: { id: row.id },
-    data: {
-      name: parsed.name.trim(),
-      icon: parsed.icon ?? row.icon,
-      criteria: JSON.stringify(parsed.criteria ?? {}),
-    },
-  });
-  const criteria = gaiaCollectionCriteriaSchema.parse(
-    safeJsonParse(updated.criteria),
-  ) as KnowledgeCollectionCriteria;
-  return {
-    collection: collectionToDTO(updated, await countCollectionNotes(userId, criteria)),
-  };
+  return updateCollectionCommand(userId, collectionId, input, collectionDependencies());
 }
 
 export async function deleteCollection(
   userId: string,
   collectionId: string,
 ): Promise<{ ok: true }> {
-  const row = await db.smartCollection.findFirst({ where: { userId, id: collectionId } });
-  if (!row) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
-  await db.smartCollection.delete({ where: { id: row.id } });
-  return { ok: true };
+  return deleteCollectionCommand(userId, collectionId, collectionDependencies());
 }
 
 export async function listCollectionNotes(
@@ -1775,25 +1654,7 @@ export async function listCollectionNotes(
   collectionId: string,
   page = 1,
 ): Promise<{ notes: GaiaNoteRow[]; total: number; collection: GaiaSmartCollectionDTO }> {
-  const { notes, total } = await listNotes(userId, {
-    collectionId,
-    page,
-    pageSize: 50,
-  });
-  const row = await db.smartCollection.findFirst({ where: { userId, id: collectionId } });
-  if (!row) throw notFound("COLLECTION_NOT_FOUND", "Collection not found.");
-  const criteria = gaiaCollectionCriteriaSchema.safeParse(
-    safeJsonParse(row.criteria),
-  ).success
-    ? (gaiaCollectionCriteriaSchema.parse(
-        safeJsonParse(row.criteria),
-      ) as KnowledgeCollectionCriteria)
-    : {};
-  return {
-    notes,
-    total,
-    collection: collectionToDTO(row, total),
-  };
+  return listCollectionNotesQuery(userId, collectionId, page, collectionDependencies());
 }
 
 // ── K09 — Canvas de connaissances ─────────────────────────────────────
