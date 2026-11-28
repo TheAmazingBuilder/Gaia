@@ -1,13 +1,29 @@
 import { loadOrphanDetectionNotes } from "@/modules/knowledge/repositories/orphans";
 import { flattenBlocks, parseJsonBlocks, parseJsonStringArray } from "@/lib/gaia/content";
-import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
 import type { GaiaNoteRow } from "@/modules/notes/types";
+import type {
+  NoteFolderMappingRecord,
+  NoteRowInput,
+  NoteTagMappingRecord,
+} from "@/modules/notes/types/list";
+
+type NoteRelationRecord = {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: string;
+  createdAt: Date;
+};
 
 type OrphanNotesDependencies = {
-  loadFolders: (userId: string) => Promise<NoteFolder[]>;
-  loadTags: (userId: string) => Promise<NoteTag[]>;
-  loadRelations: (userId: string) => Promise<NoteRelation[]>;
-  toRow: (note: Note, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
+  loadFolders: (userId: string) => Promise<NoteFolderMappingRecord[]>;
+  loadTags: (userId: string) => Promise<NoteTagMappingRecord[]>;
+  loadRelations: (userId: string) => Promise<NoteRelationRecord[]>;
+  toRow: (
+    note: NoteRowInput,
+    folders: NoteFolderMappingRecord[],
+    tags: NoteTagMappingRecord[],
+  ) => GaiaNoteRow;
 };
 
 export async function getOrphanNotesQuery(
