@@ -47,6 +47,33 @@ export function findActiveNote(userId: string, noteId: string): Promise<Note | n
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
 }
 
+/** Load versions belonging to the note owner for snapshot throttling and retention. */
+export function loadNoteVersionsForSnapshot(userId: string, noteId: string) {
+  return db.noteVersion.findMany({ where: { userId, noteId } });
+}
+
+/** Persist a pre-edit note snapshot with the original timestamp semantics. */
+export function createNoteVersionSnapshot(data: {
+  userId: string;
+  noteId: string;
+  title: string;
+  blocks: string;
+  savedAt: Date;
+}) {
+  return db.noteVersion.create({ data });
+}
+
+/** Remove only the excess versions selected by the snapshot retention policy. */
+export function deleteNoteVersions(
+  userId: string,
+  versionIds: string[],
+) {
+  if (versionIds.length === 0) return Promise.resolve({ count: 0 });
+  return db.noteVersion.deleteMany({
+    where: { userId, id: { in: versionIds } },
+  });
+}
+
 /** Persist spaced-repetition metadata computed by the Notes domain service. */
 export function updateNoteReviewMetadata(
   noteId: string,
