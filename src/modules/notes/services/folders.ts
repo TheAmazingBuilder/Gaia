@@ -109,9 +109,7 @@ export async function updateFolderCommand(
     name,
     ...(parentId !== undefined ? { parentId } : {}),
   });
-  const noteCount = await db.note.count({
-    where: { userId, folderId: folder.id, deletedAt: null },
-  });
+  const noteCount = await countActiveNotesInFolder(userId, folder.id);
   return { ...updated, noteCount };
 }
 
@@ -120,7 +118,7 @@ export async function deleteFolderCommand(
   folderId: string,
   folderNotFound: () => Error,
 ): Promise<{ ok: true }> {
-  const folder = await db.noteFolder.findFirst({ where: { userId, id: folderId } });
+  const folder = await findOwnedFolder(userId, folderId);
   if (!folder) throw folderNotFound();
   // Preserve the existing behavior: child folders are reparented and notes become unfiled.
   await reparentChildFolders(userId, folder.id, folder.parentId ?? null);
