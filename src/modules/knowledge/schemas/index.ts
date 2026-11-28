@@ -35,3 +35,7 @@ export const canvasInputSchema = z.object({
   name: z.string().min(1).max(120),
   items: z.array(canvasItemSchema).max(200).optional(),
 });
+
+export const inboxInputSchema = z.object({
+  text: z.string().min(1).max(2000),
+});
