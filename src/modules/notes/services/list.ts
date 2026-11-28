@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import type { Note, NoteFolder, NoteTag, Prisma } from "@prisma/client";
 import {
   countOpenTodos,
