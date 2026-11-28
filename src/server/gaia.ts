@@ -198,6 +198,7 @@ import {
   gaiaRefKindSchema,
   isSafeEmbedUrl,
   isSafeImageSrc,
+  newBlockId,
   normalizeBlocks,
   parseJsonBlocks,
   parseJsonStringArray,
