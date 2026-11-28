@@ -92,6 +92,38 @@ export function restoreNoteVersion(
   return db.note.update({ where: { id: noteId }, data });
 }
 
+/** Find an active note within its owner's scope for lifecycle operations. */
+export function findNoteForTrash(userId: string, noteId: string) {
+  return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+}
+
+/** Find a note within its owner's scope, including notes already in trash. */
+export function findOwnedNote(userId: string, noteId: string) {
+  return db.note.findFirst({ where: { userId, id: noteId } });
+}
+
+/** Move an owned note into or out of trash after the service validates its state. */
+export function setNoteDeletedAt(
+  noteId: string,
+  deletedAt: Date | null,
+  updatedAt?: Date,
+): Promise<Note> {
+  return db.note.update({
+    where: { id: noteId },
+    data: { deletedAt, ...(updatedAt ? { updatedAt } : {}) },
+  });
+}
+
+/** Permanently remove the version history for an already owner-scoped note. */
+export function deleteNoteVersionHistory(userId: string, noteId: string) {
+  return db.noteVersion.deleteMany({ where: { userId, noteId } });
+}
+
+/** Permanently remove an already owner-scoped note. */
+export function deleteOwnedNote(noteId: string) {
+  return db.note.delete({ where: { id: noteId } });
+}
+
 /** Persist spaced-repetition metadata computed by the Notes domain service. */
 export function updateNoteReviewMetadata(
   noteId: string,
