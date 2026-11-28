@@ -1,4 +1,4 @@
-import type { GaiaNoteRow } from "@/modules/notes/types";
+
 
 export type GaiaNoteRelationDTO = {
   id: string;
