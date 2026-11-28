@@ -113,7 +113,7 @@ import {
 } from "@/server/gaia/knowledge-navigation";
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-import { parseJsonProperties, toDTO, noteResponse } from "@/modules/notes/mappers";
+import { toDTO, noteResponse } from "@/modules/notes/mappers";
 import {
   purgeNote,
   restoreNote,
@@ -165,7 +165,6 @@ import {
 } from "@/shared/errors/gaia-error";
 export { GaiaError } from "@/shared/errors/gaia-error";
 
-const FOLDER_NOT_FOUND = () => notFound("FOLDER_NOT_FOUND", "Folder not found.");
 
 
 export { gaiaErrorResponse } from "@/shared/http/gaia-error-response";
