@@ -1,5 +1,5 @@
 import type { GaiaNoteRow, GaiaTemplateDTO } from "@/modules/notes/types";
-import type { NoteListRow, NoteRowInput } from "@/modules/notes/services/list";
+import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
 import type { NoteFolder, NoteTag } from "@prisma/client";
 import type {
   GaiaActivityWeek,
