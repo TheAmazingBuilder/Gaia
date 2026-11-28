@@ -4,9 +4,11 @@ import {
   deleteFileAndVersions,
   findOwnedFileForLifecycle,
   findFileVersion,
-  loadFileLifecycleMetadata,
 } from "@/modules/files/repositories/lifecycle";
-import { findFolderForFile } from "@/modules/notes/contracts/files";
+import {
+  countNotesAttachedToFile,
+  findFolderForFile,
+} from "@/modules/notes/contracts/files";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
@@ -17,12 +19,7 @@ type LifecycleStorage = {
   getClient: () => SupabaseClient | null;
   remove: (client: SupabaseClient, paths: string[]) => Promise<void>;
   pathFor: (userId: string, fileId: string, version: number, name: string) => string;
-  upload: (
-    client: SupabaseClient,
-    path: string,
-    buffer: Buffer,
-    mimeType: string,
-  ) => Promise<{ ok: boolean; error?: string }>;
+  upload: (client: SupabaseClient, path: string, buffer: Buffer, mimeType: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 type LifecycleErrors = {
@@ -41,10 +38,6 @@ type RestoreErrors = {
   versionConflict: () => Error;
 };
 
-/**
- * F13 — stores a replacement as a new immutable Storage object and records
- * its metadata as the current version. The old binary remains available.
- */
 export async function replaceFileCommand(
   userId: string,
   fileId: string,
@@ -58,33 +51,22 @@ export async function replaceFileCommand(
 
   const row = await findOwnedFileForLifecycle(userId, fileId);
   if (!row) throw errors.fileNotFound();
-  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
-    throw errors.validationError("File size is out of bounds.");
-  }
+  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) throw errors.validationError("File size is out of bounds.");
 
   const name = input.name.trim().slice(0, 200) || row.name;
   const nextVersion = (row.versions[0]?.version ?? 0) + 1;
   const path = storage.pathFor(userId, row.id, nextVersion, name);
   const uploaded = await storage.upload(client, path, input.buffer, input.mimeType);
-  if (!uploaded.ok) {
-    throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
-  }
+  if (!uploaded.ok) throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
 
   let result;
   try {
     result = await createReplacementFileVersion({
-      userId,
-      fileId: row.id,
-      currentStoragePath: row.storagePath,
-      name,
-      mimeType: input.mimeType.slice(0, 200),
-      size: input.size,
-      storagePath: path,
-      version: nextVersion,
+      userId, fileId: row.id, currentStoragePath: row.storagePath, name,
+      mimeType: input.mimeType.slice(0, 200), size: input.size, storagePath: path, version: nextVersion,
     });
     if (!result) throw errors.versionConflict();
   } catch (error) {
-    // The upload is provisional until the metadata transaction commits.
     try {
       await storage.remove(client, [path]);
     } catch (cleanupError) {
@@ -93,22 +75,15 @@ export async function replaceFileCommand(
     }
     throw error;
   }
-  const updated = result.file;
-  const committedVersion = result.nextVersion;
 
+  const updated = result.file;
   const [folder, noteCount] = await Promise.all([
     updated.folderId ? findFolderForFile(userId, updated.folderId) : Promise.resolve(null),
-    loadFileLifecycleMetadata(row.id),
+    countNotesAttachedToFile(row.id),
   ]);
-  return {
-    file: fileToDTO(updated, folder?.name ?? null, committedVersion, noteCount),
-  };
+  return { file: fileToDTO(updated, folder?.name ?? null, result.nextVersion, noteCount) };
 }
 
-/**
- * F13 — restores an earlier binary by creating a new version that points to
- * the selected immutable Storage object; historical versions are retained.
- */
 export async function restoreFileVersionCommand(
   userId: string,
   fileId: string,
@@ -117,31 +92,23 @@ export async function restoreFileVersionCommand(
 ): Promise<{ file: GaiaFileDTO }> {
   const row = await findOwnedFileForLifecycle(userId, fileId);
   if (!row) throw errors.fileNotFound();
-
   const target = await findFileVersion(row.id, version);
   if (!target) throw errors.versionNotFound();
-  if (target.storagePath === row.storagePath) {
-    throw errors.validationError("This version is already the current one.");
-  }
+  if (target.storagePath === row.storagePath) throw errors.validationError("This version is already the current one.");
 
   const result = await createRestoredFileVersion({
-    userId,
-    fileId: row.id,
-    currentStoragePath: row.storagePath,
-    targetStoragePath: target.storagePath,
-    targetSize: target.size,
+    userId, fileId: row.id, currentStoragePath: row.storagePath,
+    targetStoragePath: target.storagePath, targetSize: target.size,
     version: (row.versions[0]?.version ?? 0) + 1,
   });
   if (!result) throw errors.versionConflict();
+
   const updated = result.file;
-  const nextVersion = result.nextVersion;
   const [folder, noteCount] = await Promise.all([
     updated.folderId ? findFolderForFile(userId, updated.folderId) : Promise.resolve(null),
-    loadFileLifecycleMetadata(row.id),
+    countNotesAttachedToFile(row.id),
   ]);
-  return {
-    file: fileToDTO(updated, folder?.name ?? null, nextVersion, noteCount),
-  };
+  return { file: fileToDTO(updated, folder?.name ?? null, result.nextVersion, noteCount) };
 }
 
 type DeleteErrors = {
@@ -150,12 +117,7 @@ type DeleteErrors = {
   storageRemovalFailed: (message: string) => Error;
 };
 
-/**
- * F01 — removes all version binaries before deleting metadata.
- * If Storage fails, the database record is preserved so the operation can
- * be retried. If the database delete fails after Storage succeeds, retrying
- * is safe because removing an already-absent object is idempotent.
- */
+/** Delete binaries before metadata; retain the row if Storage removal fails. */
 export async function deleteFileCommand(
   userId: string,
   fileId: string,
@@ -175,6 +137,5 @@ export async function deleteFileCommand(
     }
   });
   if (!deleted) throw errors.fileNotFound();
-
   return { ok: true };
 }
