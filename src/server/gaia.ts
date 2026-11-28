@@ -129,11 +129,14 @@ import {
 } from "@/modules/notes/services/lifecycle";
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import {
-  createTemplateCommand,
   findTemplateQuery,
-  instantiateTemplateCommand,
   listTemplatesQuery,
 } from "@/modules/notes/services/templates";
+import {
+  createTemplate,
+  instantiateTemplate as instantiateTemplateAdapter,
+  listTemplates,
+} from "@/server/gaia/templates";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { getNoteQuery } from "@/modules/notes/services/details";
 import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
@@ -187,7 +190,6 @@ export { GaiaError } from "@/shared/errors/gaia-error";
 
 const NOTE_NOT_FOUND = () => notFound("NOTE_NOT_FOUND", "Note not found.");
 const FOLDER_NOT_FOUND = () => notFound("FOLDER_NOT_FOUND", "Folder not found.");
-const TEMPLATE_NOT_FOUND = () => notFound("TEMPLATE_NOT_FOUND", "Template not found.");
 const VERSION_NOT_FOUND = () => notFound("VERSION_NOT_FOUND", "Version not found.");
 
 export { gaiaErrorResponse } from "@/shared/http/gaia-error-response";
@@ -459,44 +461,13 @@ export {
 
 /* ── Modèles ─────────────────────────────────────────────────────────── */
 
-export async function listTemplates(userId: string): Promise<{ templates: GaiaTemplateDTO[] }> {
-  return listTemplatesQuery(userId, parseJsonBlocks);
-}
-
-export async function createTemplate(
-  userId: string,
-  input: unknown,
-): Promise<GaiaTemplateDTO> {
-  return createTemplateCommand(userId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    templateNotFound: TEMPLATE_NOT_FOUND,
-    parseBlocks: normalizeBlocks,
-    parseStoredBlocks: parseJsonBlocks,
-    cloneBlocksWithNewIds,
-    emptyParagraphBlock: createEmptyParagraphBlock,
-    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
-    findActiveNote,
-    createNote,
-  });
-}
+export { listTemplates, createTemplate };
 
 export async function instantiateTemplate(
   userId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  return instantiateTemplateCommand(userId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    templateNotFound: TEMPLATE_NOT_FOUND,
-    parseBlocks: normalizeBlocks,
-    parseStoredBlocks: parseJsonBlocks,
-    cloneBlocksWithNewIds,
-    emptyParagraphBlock: createEmptyParagraphBlock,
-    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
-    findActiveNote,
-    createNote,
-  });
+  return instantiateTemplateAdapter(userId, input, createNote);
 }
 
 /* ── Overview ────────────────────────────────────────────────────────── */
