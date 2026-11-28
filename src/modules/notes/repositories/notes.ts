@@ -256,3 +256,61 @@ export function findUserFolder(userId: string, folderId: string) {
 export function createNoteRecord(data: Prisma.NoteUncheckedCreateInput): Promise<Note> {
   return db.note.create({ data });
 }
+
+/** Load active-note folder assignments for folder usage counts. */
+export function loadActiveNoteFolderAssignments(userId: string) {
+  return db.note.findMany({
+    where: { userId, deletedAt: null },
+    select: { folderId: true },
+  });
+}
+
+/** Create a folder after the Notes service validates its hierarchy and name. */
+export function createNoteFolder(data: Prisma.NoteFolderUncheckedCreateInput) {
+  return db.noteFolder.create({ data });
+}
+
+/** Resolve a folder within its owner's scope. */
+export function findOwnedFolder(userId: string, folderId: string) {
+  return db.noteFolder.findFirst({ where: { userId, id: folderId } });
+}
+
+/** Update a previously owner-scoped folder. */
+export function updateNoteFolder(
+  folderId: string,
+  data: Prisma.NoteFolderUpdateInput,
+) {
+  return db.noteFolder.update({ where: { id: folderId }, data });
+}
+
+/** Count active notes assigned to one folder. */
+export function countActiveNotesInFolder(userId: string, folderId: string) {
+  return db.note.count({
+    where: { userId, folderId, deletedAt: null },
+  });
+}
+
+/** Reparent child folders before deleting their former parent. */
+export function reparentChildFolders(
+  userId: string,
+  folderId: string,
+  parentId: string | null,
+) {
+  return db.noteFolder.updateMany({
+    where: { userId, parentId: folderId },
+    data: { parentId },
+  });
+}
+
+/** Unassign all of an owner's notes from a folder before its deletion. */
+export function unassignNotesFromFolder(userId: string, folderId: string) {
+  return db.note.updateMany({
+    where: { userId, folderId },
+    data: { folderId: null },
+  });
+}
+
+/** Delete a previously owner-scoped folder. */
+export function deleteNoteFolder(folderId: string) {
+  return db.noteFolder.delete({ where: { id: folderId } });
+}
