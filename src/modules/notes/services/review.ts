@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
 import type { MasteryLevel, ReviewQuality, TimePeriod } from "@/lib/gaia/spaced-repetition";
 import {
