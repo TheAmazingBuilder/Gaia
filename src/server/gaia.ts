@@ -67,7 +67,6 @@ export type {
 import type {
   Note,
   NoteFolder,
-  NoteRelation,
   NoteTag,
   NoteVersion,
   Prisma,
@@ -150,6 +149,10 @@ import { getOverviewQuery } from "@/modules/knowledge/services/overview";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
 import { getOrphanNotesQuery } from "@/modules/knowledge/services/orphans";
+import {
+  listUserRelations as loadRelations,
+  loadActiveNoteTitles as loadNoteTitles,
+} from "@/modules/knowledge/repositories/relations";
 import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
@@ -1061,23 +1064,6 @@ export async function deleteNoteRelation(
   return deleteNoteRelationCommand(userId, noteId, relationId, {
     relationNotFound: () => notFound("RELATION_NOT_FOUND", "Relation not found."),
   });
-}
-
-async function loadRelations(userId: string): Promise<NoteRelation[]> {
-  return db.noteRelation.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
-}
-
-/** Notes (id → title) for a set of ids, active only. */
-async function loadNoteTitles(userId: string, ids: string[]): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  const rows = await db.note.findMany({
-    where: { userId, id: { in: ids }, deletedAt: null },
-    select: { id: true, title: true },
-  });
-  return new Map(rows.map((row) => [row.id, row.title === "" ? "Untitled note" : row.title]));
 }
 
 // ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
