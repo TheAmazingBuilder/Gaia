@@ -1,6 +1,7 @@
 import type { Note } from "@prisma/client";
 import type {
   NoteFolderMappingRecord,
+  NoteRowInput,
   NoteTagMappingRecord,
 } from "@/modules/notes/types/list";
 import {
@@ -20,12 +21,8 @@ import type {
   GaiaNoteResponse,
   GaiaNoteRow,
 } from "@/modules/notes/types";
-type NoteMappingRow = Pick<Note,
-  | "id" | "title" | "icon" | "folderId" | "tagIds" | "favorite" | "templateId"
-  | "blocks" | "cover" | "wordGoal" | "properties" | "createdAt" | "updatedAt"
-  | "lastViewedAt" | "deletedAt" | "mastery" | "lastReviewedAt" | "nextReviewAt"
-  | "reviewCount" | "easeFactor" | "intervalDays"
->;
+
+type NoteMappingRow = NoteRowInput;
 
 export function parseJsonProperties(raw: string | null | undefined): GaiaNoteProperty[] {
   if (!raw) return [];
