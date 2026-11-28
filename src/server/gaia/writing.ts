@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Adaptateurs serveur publics des objectifs d'écriture du module Notes.
  * Les signatures historiques restent disponibles depuis @/server/gaia.
