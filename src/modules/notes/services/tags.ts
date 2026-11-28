@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import type { NoteTag } from "@prisma/client";
 
 export type GaiaTagInput = {
