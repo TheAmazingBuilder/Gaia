@@ -15,7 +15,8 @@ import {
   noteDuplicateInputSchema,
 } from "@/modules/notes/schemas";
 export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
-import type { GaiaSmartCollectionDTO } from "@/modules/knowledge/types";
+import type { GaiaSmartCollectionDTO, GaiaCanvasDTO } from "@/modules/knowledge/types";
+export type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaCanvasItemDTO } from "@/modules/knowledge/types";
 export type { GaiaSmartCollectionDTO } from "@/modules/knowledge/types";
 import { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
 export { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
@@ -26,6 +27,13 @@ import {
   deleteCollectionCommand,
   listCollectionNotesQuery,
 } from "@/modules/knowledge/services/collections";
+import {
+  listCanvasesQuery,
+  getCanvasQuery,
+  createCanvasCommand,
+  updateCanvasCommand,
+  deleteCanvasCommand,
+} from "@/modules/knowledge/services/canvas";
 import type {
   GaiaNoteDTO,
   GaiaNoteProperty,
@@ -48,7 +56,6 @@ export type {
 } from "@/modules/notes/types";
 import type {
   InboxItem,
-  KnowledgeCanvas,
   Note,
   NoteFolder,
   NoteRelation,
@@ -289,19 +296,6 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 /* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
-const canvasItemSchema = z.object({
-  noteId: z.string().min(1),
-  x: z.number().min(-100).max(5000),
-  y: z.number().min(-100).max(5000),
-  w: z.number().min(120).max(1200).optional(),
-  h: z.number().min(80).max(1200).optional(),
-});
-
-const canvasInputSchema = z.object({
-  name: z.string().min(1).max(120),
-  items: z.array(canvasItemSchema).max(200).optional(),
-});
-
 const inboxInputSchema = z.object({ text: z.string().min(1).max(2000) });
 
 const folderInputSchema = z.object({
@@ -361,22 +355,6 @@ export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
 
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
-
-export type GaiaCanvasItemDTO = {
-  noteId: string;
-  x: number;
-  y: number;
-  w?: number;
-  h?: number;
-};
-
-export type GaiaCanvasDTO = {
-  id: string;
-  name: string;
-  items: GaiaCanvasItemDTO[];
-  createdAt: string;
-  updatedAt: string;
-};
 
 export type GaiaInboxItemDTO = {
   id: string;
@@ -1659,56 +1637,29 @@ export async function listCollectionNotes(
 
 // ── K09 — Canvas de connaissances ─────────────────────────────────────
 
-function canvasToDTO(row: KnowledgeCanvas): GaiaCanvasDTO {
-  const parsed = safeJsonParse(row.items);
-  const items: GaiaCanvasItemDTO[] = [];
-  if (Array.isArray(parsed)) {
-    for (const item of parsed) {
-      const checked = canvasItemSchema.safeParse(item);
-      if (checked.success) items.push(checked.data);
-    }
-  }
-  return {
-    id: row.id,
-    name: row.name,
-    items,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
+const canvasDependencies = () => ({
+  validationError,
+  canvasNotFound: () => notFound("CANVAS_NOT_FOUND", "Canvas not found."),
+});
 
 export async function listCanvases(
   userId: string,
 ): Promise<{ canvases: GaiaCanvasDTO[] }> {
-  const rows = await db.knowledgeCanvas.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
-  return { canvases: rows.map(canvasToDTO) };
+  return listCanvasesQuery(userId);
 }
 
 export async function getCanvas(
   userId: string,
   canvasId: string,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  const row = await db.knowledgeCanvas.findFirst({ where: { userId, id: canvasId } });
-  if (!row) throw notFound("CANVAS_NOT_FOUND", "Canvas not found.");
-  return { canvas: canvasToDTO(row) };
+  return getCanvasQuery(userId, canvasId, canvasDependencies());
 }
 
 export async function createCanvas(
   userId: string,
   input: unknown,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  const parsed = parseOrThrow(canvasInputSchema, input);
-  const row = await db.knowledgeCanvas.create({
-    data: {
-      userId,
-      name: parsed.name.trim(),
-      items: JSON.stringify(parsed.items ?? []),
-    },
-  });
-  return { canvas: canvasToDTO(row) };
+  return createCanvasCommand(userId, input, canvasDependencies());
 }
 
 export async function updateCanvas(
@@ -1716,38 +1667,14 @@ export async function updateCanvas(
   canvasId: string,
   input: unknown,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  const parsed = parseOrThrow(canvasInputSchema, input);
-  const row = await db.knowledgeCanvas.findFirst({ where: { userId, id: canvasId } });
-  if (!row) throw notFound("CANVAS_NOT_FOUND", "Canvas not found.");
-  // Les cartes ne peuvent référencer que des notes existantes et actives.
-  let items = parsed.items;
-  if (items !== undefined) {
-    const ids = [...new Set(items.map((i) => i.noteId))];
-    const existing = await db.note.findMany({
-      where: { userId, id: { in: ids }, deletedAt: null },
-      select: { id: true },
-    });
-    const known = new Set(existing.map((n) => n.id));
-    items = items.filter((i) => known.has(i.noteId));
-  }
-  const updated = await db.knowledgeCanvas.update({
-    where: { id: row.id },
-    data: {
-      name: parsed.name.trim(),
-      ...(items !== undefined ? { items: JSON.stringify(items) } : {}),
-    },
-  });
-  return { canvas: canvasToDTO(updated) };
+  return updateCanvasCommand(userId, canvasId, input, canvasDependencies());
 }
 
 export async function deleteCanvas(
   userId: string,
   canvasId: string,
 ): Promise<{ ok: true }> {
-  const row = await db.knowledgeCanvas.findFirst({ where: { userId, id: canvasId } });
-  if (!row) throw notFound("CANVAS_NOT_FOUND", "Canvas not found.");
-  await db.knowledgeCanvas.delete({ where: { id: row.id } });
-  return { ok: true };
+  return deleteCanvasCommand(userId, canvasId, canvasDependencies());
 }
 
 // ── K12 — Inbox ───────────────────────────────────────────────────────
