@@ -1,11 +1,14 @@
 import {
   deleteNoteFileAssociation,
   findOwnedFile,
-  findOwnedNote,
   loadFilesForNote,
   loadNotesForFile,
   upsertNoteFileAssociation,
 } from "@/modules/files/repositories/associations";
+import {
+  findNoteForFileAssociation,
+  listFoldersForFiles,
+} from "@/modules/notes/contracts/files";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
 
@@ -22,7 +25,7 @@ export async function attachFileToNoteCommand(
   errors: AssociationErrors,
 ): Promise<{ ok: true }> {
   const [note, file] = await Promise.all([
-    findOwnedNote(userId, noteId, true),
+    findNoteForFileAssociation(userId, noteId, true),
     findOwnedFile(userId, fileId),
   ]);
   if (!note) throw errors.noteNotFound();
@@ -39,7 +42,7 @@ export async function detachFileFromNoteCommand(
   fileId: string,
   noteNotFound: () => Error,
 ): Promise<{ ok: true }> {
-  const note = await findOwnedNote(userId, noteId);
+  const note = await findNoteForFileAssociation(userId, noteId);
   if (!note) throw noteNotFound();
   await deleteNoteFileAssociation(fileId, note.id);
   return { ok: true };
@@ -51,10 +54,14 @@ export async function listNoteFilesQuery(
   noteId: string,
   noteNotFound: () => Error,
 ): Promise<{ files: GaiaFileDTO[] }> {
-  const note = await findOwnedNote(userId, noteId);
+  const note = await findNoteForFileAssociation(userId, noteId);
   if (!note) throw noteNotFound();
 
-  const { links, folderNames } = await loadFilesForNote(userId, note.id);
+  const [links, folders] = await Promise.all([
+    loadFilesForNote(userId, note.id),
+    listFoldersForFiles(userId),
+  ]);
+  const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]));
   return {
     files: links.map(({ file }) =>
       fileToDTO(
