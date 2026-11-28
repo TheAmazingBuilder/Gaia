@@ -74,6 +74,24 @@ export function deleteNoteVersions(
   });
 }
 
+/** Load all versions belonging to one user and note. */
+export function loadNoteVersions(userId: string, noteId: string) {
+  return db.noteVersion.findMany({ where: { userId, noteId } });
+}
+
+/** Resolve a version only when its user, note and version IDs all match. */
+export function findNoteVersion(userId: string, noteId: string, versionId: string) {
+  return db.noteVersion.findFirst({ where: { userId, noteId, id: versionId } });
+}
+
+/** Persist a restored snapshot as a note update after ownership was verified. */
+export function restoreNoteVersion(
+  noteId: string,
+  data: { title: string; blocks: string; updatedAt: Date },
+): Promise<Note> {
+  return db.note.update({ where: { id: noteId }, data });
+}
+
 /** Persist spaced-repetition metadata computed by the Notes domain service. */
 export function updateNoteReviewMetadata(
   noteId: string,
