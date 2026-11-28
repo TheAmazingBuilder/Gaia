@@ -1,4 +1,3 @@
-
 import { noteRelationInputSchema } from "@/modules/knowledge/schemas";
 import {
   createUserNoteRelation,
