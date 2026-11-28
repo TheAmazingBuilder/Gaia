@@ -126,17 +126,18 @@ import {
   restoreNoteCommand,
   trashNoteCommand,
 } from "@/modules/notes/services/lifecycle";
-import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
+import { listTemplatesQuery } from "@/modules/notes/services/templates";
 import {
-  findTemplateQuery,
-  listTemplatesQuery,
-} from "@/modules/notes/services/templates";
+  createNote as createNoteAdapter,
+  updateNote as updateNoteAdapter,
+  duplicateNote as duplicateNoteAdapter,
+} from "@/server/gaia/notes-write";
 import {
   createTemplate,
   instantiateTemplate as instantiateTemplateAdapter,
   listTemplates,
 } from "@/server/gaia/templates";
-import { updateNoteCommand } from "@/modules/notes/services/update";
+
 import { loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
 import {
   getNote as getNoteAdapter,
@@ -267,24 +268,7 @@ export async function createNote(
   userId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  return createNoteCommand(userId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    folderNotFound: FOLDER_NOT_FOUND,
-    parseBlocks: normalizeBlocks,
-    parseStoredBlocks: parseJsonBlocks,
-    cloneBlocksWithNewIds,
-    emptyParagraphBlock: createEmptyParagraphBlock,
-    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
-    normalizeProperties,
-    findTemplate: async (ownerId, templateId) =>
-      findTemplateQuery(ownerId, templateId, parseJsonBlocks),
-    findActiveNote,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
+  return createNoteAdapter(userId, input);
 }
 
 export async function updateNote(
@@ -292,19 +276,7 @@ export async function updateNote(
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  return updateNoteCommand(userId, noteId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    normalizeBlocks,
-    parseStoredBlocks: parseJsonBlocks,
-    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
-    normalizeProperties,
-    maybeSnapshotVersion: createNoteSnapshotIfNeeded,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
+  return updateNoteAdapter(userId, noteId, input);
 }
 
 /* ── Module 1 — Objectifs d'écriture (E12) ─────────────────────────────── */
@@ -329,24 +301,7 @@ export async function duplicateNote(
   noteId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  return duplicateNoteCommand(userId, noteId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    folderNotFound: FOLDER_NOT_FOUND,
-    parseBlocks: normalizeBlocks,
-    parseStoredBlocks: parseJsonBlocks,
-    cloneBlocksWithNewIds,
-    emptyParagraphBlock: createEmptyParagraphBlock,
-    assertSafeImageSources: (blocks) => assertSafeImageSources(blocks, validationError),
-    normalizeProperties,
-    findTemplate: async (ownerId, templateId) =>
-      findTemplateQuery(ownerId, templateId, parseJsonBlocks),
-    findActiveNote,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
+  return duplicateNoteAdapter(userId, noteId, input);
 }
 
 /* ── Phase 1 — Memory : révision espacée + statistiques ────────────────── */
