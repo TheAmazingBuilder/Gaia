@@ -122,10 +122,10 @@ import {
   loadActiveNoteTitles as loadNoteTitles,
 } from "@/modules/knowledge/repositories/relations";
 import {
-  purgeNoteCommand,
-  restoreNoteCommand,
-  trashNoteCommand,
-} from "@/modules/notes/services/lifecycle";
+  purgeNote,
+  restoreNote,
+  trashNote,
+} from "@/server/gaia/notes-lifecycle";
 import { listTemplatesQuery } from "@/modules/notes/services/templates";
 import {
   createNote as createNoteAdapter,
@@ -284,17 +284,7 @@ export async function updateNote(
 export type { GaiaWritingSettings, GaiaTodayWords } from "@/server/gaia/writing";
 export { getWritingSettings, updateWritingSettings, getTodayWords } from "@/server/gaia/writing";
 
-export async function trashNote(userId: string, noteId: string): Promise<{ ok: true }> {
-  return trashNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
-}
-
-export async function restoreNote(userId: string, noteId: string): Promise<{ ok: true }> {
-  return restoreNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
-}
-
-export async function purgeNote(userId: string, noteId: string): Promise<{ ok: true }> {
-  return purgeNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
-}
+export { trashNote, restoreNote, purgeNote };
 
 export async function duplicateNote(
   userId: string,
