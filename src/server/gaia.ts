@@ -110,6 +110,7 @@ import {
 import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
+import { getOrphanNotesQuery } from "@/modules/knowledge/services/orphans";
 import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
@@ -1617,54 +1618,12 @@ export async function getLinkSuggestions(
 export async function getOrphanNotes(
   userId: string,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  const [folders, tags, relations, allNotes] = await Promise.all([
-    loadFolders(userId),
-    loadTags(userId),
-    loadRelations(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-  const outgoing = new Map<string, Set<string>>();
-  const incoming = new Set<string>();
-  const tagGroups = new Map<string, string[]>();
-  for (const note of allNotes) {
-    const targets = new Set<string>();
-    for (const block of flattenBlocks(parseJsonBlocks(note.blocks))) {
-      if (block.type === "ref" && block.ref?.kind === "NOTE" && block.ref.id !== note.id) {
-        targets.add(block.ref.id);
-        incoming.add(block.ref.id);
-      }
-    }
-    outgoing.set(note.id, targets);
-    for (const tagId of parseJsonStringArray(note.tagIds)) {
-      const list = tagGroups.get(tagId) ?? [];
-      list.push(note.id);
-      tagGroups.set(tagId, list);
-    }
-  }
-  const relatedIds = new Set<string>();
-  for (const rel of relations) {
-    relatedIds.add(rel.fromNoteId);
-    relatedIds.add(rel.toNoteId);
-  }
-  const sharedTagIds = new Set<string>();
-  for (const members of tagGroups.values()) {
-    if (members.length >= 2) {
-      for (const id of members) sharedTagIds.add(id);
-    }
-  }
-  const orphans = allNotes.filter(
-    (note) =>
-      (outgoing.get(note.id)?.size ?? 0) === 0 &&
-      !incoming.has(note.id) &&
-      !relatedIds.has(note.id) &&
-      !sharedTagIds.has(note.id),
-  );
-  orphans.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  const total = orphans.length;
-  return {
-    notes: orphans.slice(0, 50).map((n) => toRow(n, folders, tags)),
-    total,
-  };
+  return getOrphanNotesQuery(userId, {
+    loadFolders,
+    loadTags,
+    loadRelations,
+    toRow,
+  });
 }
 
 // ── K16 — Timeline des connaissances ──────────────────────────────────
