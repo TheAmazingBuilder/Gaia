@@ -24,8 +24,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-import { parseInlineSegments, stripInlineMarkers } from "./inline";
-export { parseInlineSegments, stripInlineMarkers };
+export { parseInlineSegments, stripInlineMarkers } from "./inline";
 export type { InlineSegment } from "./inline";
 
 
@@ -228,7 +227,6 @@ export function newCommentId(): string {
 // ── Parcours récursif ──────────────────────────────────────────────────────
 // flattenBlocks + extractHeadings vivent dans ./tree.ts (client-safe) ;
 // content.ts les importe (usage local) et les ré-exporte pour le serveur.
-import { extractHeadings } from "./tree";
 export { extractHeadings, flattenBlocks } from "./tree";
 
 // ── Normalisation / relecture ──────────────────────────────────────────────
