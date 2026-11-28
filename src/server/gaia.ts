@@ -141,7 +141,6 @@ import {
   listUserRelations as loadRelations,
   loadActiveNoteTitles as loadNoteTitles,
 } from "@/modules/knowledge/repositories/relations";
-import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
   restoreNoteCommand,
