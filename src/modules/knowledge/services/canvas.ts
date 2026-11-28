@@ -87,7 +87,7 @@ export async function updateCanvasCommand(
   input: unknown,
   deps: CanvasDependencies,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  const parsed = parseCanvasInput(canvasInputSchema, input, deps.validationError);
+  const parsed = parseOrThrow(canvasInputSchema, input, deps.validationError);
   const row = await db.knowledgeCanvas.findFirst({
     where: { userId, id: canvasId },
   });
