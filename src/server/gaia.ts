@@ -506,21 +506,14 @@ export async function convertInboxItem(
 
 // ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
 
-const periodicNotesDependencies = () => ({
-  loadFolders,
-  loadTags,
-  noteResponse,
-  createNote,
-});
-
 export async function getOrCreateDailyNote(
   userId: string,
 ): Promise<GaiaNoteResponse> {
-  return getOrCreateDailyNoteAdapter(userId, periodicNotesDependencies());
+  return getOrCreateDailyNoteAdapter(userId);
 }
 
 export async function getOrCreateWeeklyNote(
   userId: string,
 ): Promise<GaiaNoteResponse> {
-  return getOrCreateWeeklyNoteAdapter(userId, periodicNotesDependencies());
+  return getOrCreateWeeklyNoteAdapter(userId);
 }
