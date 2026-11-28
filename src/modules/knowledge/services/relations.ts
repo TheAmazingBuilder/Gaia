@@ -1,6 +1,9 @@
 import { db } from "@/lib/db";
 import { noteRelationInputSchema } from "@/modules/knowledge/schemas";
-import { loadActiveNoteTitles } from "@/modules/knowledge/repositories/relations";
+import {
+  listUserRelations,
+  loadActiveNoteTitles,
+} from "@/modules/knowledge/repositories/relations";
 import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
 import type { Note, NoteRelation } from "@prisma/client";
 import type { z } from "zod";
@@ -68,10 +71,7 @@ export async function listNoteRelationsQuery(
   const note = await findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
-  const relations = await db.noteRelation.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
+  const relations = await listUserRelations(userId);
   const mine = relations.filter(
     (relation) => relation.fromNoteId === noteId || relation.toNoteId === noteId,
   );
