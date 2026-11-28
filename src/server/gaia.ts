@@ -15,7 +15,8 @@ import {
   noteDuplicateInputSchema,
 } from "@/modules/notes/schemas";
 export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
-import type { GaiaSmartCollectionDTO, GaiaCanvasDTO } from "@/modules/knowledge/types";
+import type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaInboxItemDTO } from "@/modules/knowledge/types";
+export type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaCanvasItemDTO, GaiaInboxItemDTO } from "@/modules/knowledge/types";
 export type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaCanvasItemDTO } from "@/modules/knowledge/types";
 import { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
 export { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
@@ -33,6 +34,13 @@ import {
   updateCanvasCommand,
   deleteCanvasCommand,
 } from "@/modules/knowledge/services/canvas";
+import {
+  listInboxQuery,
+  createInboxItemCommand,
+  toggleInboxItemCommand,
+  deleteInboxItemCommand,
+  convertInboxItemCommand,
+} from "@/modules/knowledge/services/inbox";
 import type {
   GaiaNoteDTO,
   GaiaNoteProperty,
@@ -54,7 +62,6 @@ export type {
   GaiaTemplateDTO,
 } from "@/modules/notes/types";
 import type {
-  InboxItem,
   Note,
   NoteFolder,
   NoteRelation,
@@ -295,8 +302,6 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 /* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
-const inboxInputSchema = z.object({ text: z.string().min(1).max(2000) });
-
 const folderInputSchema = z.object({
   name: z.string().min(1).max(80),
   parentId: z.string().nullable().optional(),
@@ -354,14 +359,6 @@ export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
 
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
-
-export type GaiaInboxItemDTO = {
-  id: string;
-  text: string;
-  doneAt: string | null;
-  noteId: string | null;
-  createdAt: string;
-};
 
 export type GaiaActivityWeek = { weekStart: string; created: number; edited: number };
 
@@ -1678,39 +1675,27 @@ export async function deleteCanvas(
 
 // ── K12 — Inbox ───────────────────────────────────────────────────────
 
-function inboxToDTO(row: InboxItem): GaiaInboxItemDTO {
-  return {
-    id: row.id,
-    text: row.text,
-    doneAt: row.doneAt?.toISOString() ?? null,
-    noteId: row.noteId,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
+const inboxDependencies = () => ({
+  validationError,
+  inboxItemNotFound: () => notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found."),
+  findActiveNote,
+  loadFolders,
+  loadTags,
+  toDTO,
+  createNote,
+});
 
 export async function listInbox(
   userId: string,
 ): Promise<{ open: GaiaInboxItemDTO[]; done: GaiaInboxItemDTO[] }> {
-  const rows = await db.inboxItem.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
-  return {
-    open: rows.filter((r) => r.doneAt === null).map(inboxToDTO),
-    done: rows.filter((r) => r.doneAt !== null).map(inboxToDTO),
-  };
+  return listInboxQuery(userId);
 }
 
 export async function createInboxItem(
   userId: string,
   input: unknown,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  const parsed = parseOrThrow(inboxInputSchema, input);
-  const row = await db.inboxItem.create({
-    data: { userId, text: parsed.text.trim() },
-  });
-  return { item: inboxToDTO(row) };
+  return createInboxItemCommand(userId, input, inboxDependencies());
 }
 
 export async function toggleInboxItem(
@@ -1718,52 +1703,21 @@ export async function toggleInboxItem(
   itemId: string,
   done: boolean,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
-  if (!row) throw notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found.");
-  const updated = await db.inboxItem.update({
-    where: { id: row.id },
-    data: { doneAt: done ? new Date() : null },
-  });
-  return { item: inboxToDTO(updated) };
+  return toggleInboxItemCommand(userId, itemId, done, inboxDependencies());
 }
 
 export async function deleteInboxItem(
   userId: string,
   itemId: string,
 ): Promise<{ ok: true }> {
-  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
-  if (!row) throw notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found.");
-  await db.inboxItem.delete({ where: { id: row.id } });
-  return { ok: true };
+  return deleteInboxItemCommand(userId, itemId, inboxDependencies());
 }
 
 export async function convertInboxItem(
   userId: string,
   itemId: string,
 ): Promise<{ note: GaiaNoteResponse["note"]; item: GaiaInboxItemDTO }> {
-  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
-  if (!row) throw notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found.");
-  if (row.noteId) {
-    const note = await findActiveNote(userId, row.noteId);
-    if (note) {
-      const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-      return { note: toDTO(note), item: inboxToDTO(row) };
-    }
-  }
-  const lines = row.text.split("\n").map((l) => l.trim()).filter((l) => l !== "");
-  const title = (lines[0] ?? "").slice(0, 200);
-  const blocks: GaiaBlock[] = lines.slice(0, 50).map((line) => ({
-    id: newBlockId(),
-    type: "paragraph",
-    text: line,
-  }));
-  if (blocks.length === 0) blocks.push(emptyParagraphBlock());
-  const created = await createNote(userId, { title, blocks });
-  const updated = await db.inboxItem.update({
-    where: { id: row.id },
-    data: { noteId: created.note.id, doneAt: new Date() },
-  });
-  return { note: created.note, item: inboxToDTO(updated) };
+  return convertInboxItemCommand(userId, itemId, inboxDependencies());
 }
 
 // ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
