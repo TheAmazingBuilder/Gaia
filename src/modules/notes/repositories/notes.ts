@@ -1,4 +1,4 @@
-import type { Note, NoteTag, Prisma } from "@prisma/client";
+import type { Note, NoteTag, NoteTemplate, Prisma } from "@prisma/client";
 import { db } from "@/shared/database/client";
 import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
 
@@ -374,4 +374,24 @@ export function saveNoteTagRelatedIds(tagId: string, relatedIds: string) {
 /** Persist the cleaned tag IDs for one note. */
 export function saveNoteTagIds(noteId: string, tagIds: string) {
   return db.note.update({ where: { id: noteId }, data: { tagIds } });
+}
+
+/** Resolve a user-owned note template. */
+export function findUserNoteTemplate(userId: string, templateId: string): Promise<NoteTemplate | null> {
+  return db.noteTemplate.findFirst({ where: { userId, id: templateId } });
+}
+
+/** List user-owned templates in their established creation order. */
+export function loadUserNoteTemplates(userId: string): Promise<NoteTemplate[]> {
+  return db.noteTemplate.findMany({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/** Persist a template after its content has been validated by the Notes service. */
+export function createUserNoteTemplate(
+  data: Prisma.NoteTemplateUncheckedCreateInput,
+): Promise<NoteTemplate> {
+  return db.noteTemplate.create({ data });
 }
