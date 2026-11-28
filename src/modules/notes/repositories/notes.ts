@@ -314,3 +314,64 @@ export function unassignNotesFromFolder(userId: string, folderId: string) {
 export function deleteNoteFolder(folderId: string) {
   return db.noteFolder.delete({ where: { id: folderId } });
 }
+
+/** Load every tag owned by a user. */
+export function loadUserTags(userId: string): Promise<NoteTag[]> {
+  return db.noteTag.findMany({ where: { userId } });
+}
+
+/** Load active notes' serialized tag IDs for counts and cleanup. */
+export function loadActiveNotesWithTagIds(userId: string) {
+  return db.note.findMany({
+    where: { userId, deletedAt: null },
+    select: { tagIds: true },
+  });
+}
+
+/** Load all notes' serialized tag IDs when deleting a tag. */
+export function loadAllNotesWithTagIds(userId: string) {
+  return db.note.findMany({ where: { userId }, select: { id: true, tagIds: true } });
+}
+
+/** Create a tag from validated, owner-scoped data. */
+export function createNoteTag(data: Prisma.NoteTagUncheckedCreateInput): Promise<NoteTag> {
+  return db.noteTag.create({ data });
+}
+
+/** Find a tag only inside its owner's scope. */
+export function findOwnedTag(userId: string, tagId: string): Promise<NoteTag | null> {
+  return db.noteTag.findFirst({ where: { userId, id: tagId } });
+}
+
+/** Update a previously owner-scoped tag. */
+export function updateNoteTag(tagId: string, data: Prisma.NoteTagUpdateInput): Promise<NoteTag> {
+  return db.noteTag.update({ where: { id: tagId }, data });
+}
+
+/** Detach child tags from a tag being deleted. */
+export function detachChildTags(userId: string, tagId: string) {
+  return db.noteTag.updateMany({
+    where: { userId, parentId: tagId },
+    data: { parentId: null },
+  });
+}
+
+/** Load the owner's tags before removing references to a deleted tag. */
+export function loadTagsForReferenceCleanup(userId: string): Promise<NoteTag[]> {
+  return db.noteTag.findMany({ where: { userId } });
+}
+
+/** Delete a tag after its references have been cleaned up. */
+export function deleteNoteTag(tagId: string) {
+  return db.noteTag.delete({ where: { id: tagId } });
+}
+
+/** Persist the cleaned related-tag IDs for one tag. */
+export function saveNoteTagRelatedIds(tagId: string, relatedIds: string) {
+  return db.noteTag.update({ where: { id: tagId }, data: { relatedIds } });
+}
+
+/** Persist the cleaned tag IDs for one note. */
+export function saveNoteTagIds(noteId: string, tagIds: string) {
+  return db.note.update({ where: { id: noteId }, data: { tagIds } });
+}
