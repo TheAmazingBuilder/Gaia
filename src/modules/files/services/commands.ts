@@ -24,7 +24,6 @@ type CreateFileInput = {
 };
 
 type CreateFileErrors = {
-  fileNotFound: () => Error;
   folderNotFound: () => Error;
   validationError: (message: string) => Error;
   storageNotConfigured: () => Error;
