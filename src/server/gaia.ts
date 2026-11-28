@@ -58,12 +58,6 @@ export type {
   GaiaTemplateDTO,
 } from "@/modules/notes/types";
 import type {
-  Note,
-  NoteFolder,
-  NoteTag,
-  Prisma,
-} from "@prisma/client";
-import type {
   GaiaFileAnnotationDTO,
   GaiaFileDTO,
   GaiaFileDetailDTO,
