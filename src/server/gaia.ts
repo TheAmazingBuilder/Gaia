@@ -436,11 +436,6 @@ export async function listCollectionNotes(
 
 // ── K09 — Canvas de connaissances ─────────────────────────────────────
 
-const canvasDependencies = () => ({
-  validationError,
-  canvasNotFound: () => notFound("CANVAS_NOT_FOUND", "Canvas not found."),
-});
-
 export async function listCanvases(
   userId: string,
 ): Promise<{ canvases: GaiaCanvasDTO[] }> {
@@ -451,14 +446,14 @@ export async function getCanvas(
   userId: string,
   canvasId: string,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  return getCanvasAdapter(userId, canvasId, canvasDependencies());
+  return getCanvasAdapter(userId, canvasId);
 }
 
 export async function createCanvas(
   userId: string,
   input: unknown,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  return createCanvasAdapter(userId, input, canvasDependencies());
+  return createCanvasAdapter(userId, input);
 }
 
 export async function updateCanvas(
@@ -466,14 +461,14 @@ export async function updateCanvas(
   canvasId: string,
   input: unknown,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  return updateCanvasAdapter(userId, canvasId, input, canvasDependencies());
+  return updateCanvasAdapter(userId, canvasId, input);
 }
 
 export async function deleteCanvas(
   userId: string,
   canvasId: string,
 ): Promise<{ ok: true }> {
-  return deleteCanvasAdapter(userId, canvasId, canvasDependencies());
+  return deleteCanvasAdapter(userId, canvasId);
 }
 
 // ── K12 — Inbox ───────────────────────────────────────────────────────
