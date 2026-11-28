@@ -43,12 +43,12 @@ export async function listFoldersForFiles(
   return folders.map(({ id, name }) => ({ id, name }));
 }
 
-export function attachFileToNote(fileId: string, noteId: string): Promise<unknown> {
-  return upsertNoteFileLink(fileId, noteId);
+export async function attachFileToNote(fileId: string, noteId: string): Promise<void> {
+  await upsertNoteFileLink(fileId, noteId);
 }
 
-export function detachFileFromNote(fileId: string, noteId: string): Promise<unknown> {
-  return deleteNoteFileLink(fileId, noteId);
+export async function detachFileFromNote(fileId: string, noteId: string): Promise<void> {
+  await deleteNoteFileLink(fileId, noteId);
 }
 
 export async function listFileIdsAttachedToNote(
