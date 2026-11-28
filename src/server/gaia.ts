@@ -122,7 +122,6 @@ import {
   restoreNote,
   trashNote,
 } from "@/server/gaia/notes-lifecycle";
-import { listTemplatesQuery } from "@/modules/notes/services/templates";
 import {
   createNote as createNoteAdapter,
   updateNote as updateNoteAdapter,
@@ -134,7 +133,6 @@ import {
   listTemplates,
 } from "@/server/gaia/templates";
 
-import { loadOverviewNotesQuery, loadBlocksFor } from "@/modules/notes/services/list";
 import {
   getNote as getNoteAdapter,
   listNotes as listNotesAdapter,
@@ -153,8 +151,6 @@ import {
   gaiaBlocksInputSchema,
   gaiaRefKindSchema,
   normalizeBlocks,
-  parseJsonBlocks,
-  parseJsonStringArray,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
 export { listGaiaRefs } from "@/server/gaia/references";
@@ -326,15 +322,7 @@ export async function instantiateTemplate(
 /* ── Overview ────────────────────────────────────────────────────────── */
 
 export async function getOverview(userId: string): Promise<GaiaOverviewResponse> {
-  return getOverviewAdapter(userId, {
-    loadFolders,
-    loadTags,
-    loadNotes: loadOverviewNotesQuery,
-    loadBlocksFor,
-    toRow,
-    parseTagIds: parseJsonStringArray,
-    listTemplates: (ownerId) => listTemplatesQuery(ownerId, parseJsonBlocks),
-  });
+  return getOverviewAdapter(userId);
 }
 
 /* ── Recherche ───────────────────────────────────────────────────────── */
