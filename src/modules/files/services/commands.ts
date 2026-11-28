@@ -1,4 +1,9 @@
-import { db } from "@/lib/db";
+import {
+  countFileNoteAssociations, countFileVersions, createFileAnnotationRecord,
+  createFileWithFirstVersion, deleteFileAnnotationRecord, findOwnedFileAnnotation,
+  findOwnedFileFolder, findOwnedFileRecord, loadFileFolderName, saveFileOcrText,
+  updateFileRecord,
+} from "@/modules/files/repositories/commands";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
 import type {
@@ -62,10 +67,7 @@ export async function createFileCommand(
 
   let folderId: string | null = null;
   if (input.folderId) {
-    const folder = await db.noteFolder.findFirst({
-      where: { userId, id: input.folderId },
-      select: { id: true, name: true },
-    });
+    const folder = await findOwnedFileFolder(userId, input.folderId);
     if (!folder) throw errors.folderNotFound();
     folderId = folder.id;
   }
@@ -78,24 +80,8 @@ export async function createFileCommand(
   }
 
   try {
-    const row = await db.gaiaFile.create({
-      data: {
-        id,
-        userId,
-        name,
-        mimeType: input.mimeType.slice(0, 200),
-        size: input.size,
-        storagePath: path,
-        folderId,
-        versions: { create: { version: 1, storagePath: path, size: input.size } },
-      },
-    });
-    const folder = folderId
-      ? await db.noteFolder.findFirst({
-          where: { userId, id: folderId },
-          select: { name: true },
-        })
-      : null;
+    const row = await createFileWithFirstVersion({ id, userId, name, mimeType: input.mimeType.slice(0, 200), size: input.size, storagePath: path, folderId });
+    const folder = await loadFileFolderName(userId, folderId);
     return { file: fileToDTO(row, folder?.name ?? null, 1, 0) };
   } catch (error) {
     await storage.remove(client, [path]);
@@ -115,7 +101,7 @@ export async function updateFileCommand(
   input: { name?: string; folderId?: string | null },
   errors: FileCommandErrors,
 ): Promise<{ file: GaiaFileDTO }> {
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  const row = await findOwnedFileRecord(userId, fileId);
   if (!row) throw errors.fileNotFound();
 
   let folderId = row.folderId;
@@ -123,25 +109,15 @@ export async function updateFileCommand(
     if (input.folderId === null) {
       folderId = null;
     } else {
-      const folder = await db.noteFolder.findFirst({
-        where: { userId, id: input.folderId },
-        select: { id: true },
-      });
+      const folder = await findOwnedFileFolder(userId, input.folderId);
       if (!folder) throw errors.folderNotFound();
       folderId = folder.id;
     }
   }
 
   const [updated, folder, versionCount, noteCount] = await Promise.all([
-    db.gaiaFile.update({
-      where: { id: row.id },
-      data: { ...(input.name ? { name: input.name } : {}), folderId },
-    }),
-    folderId
-      ? db.noteFolder.findFirst({ where: { userId, id: folderId }, select: { name: true } })
-      : Promise.resolve(null),
-    db.fileVersion.count({ where: { fileId: row.id } }),
-    db.noteFile.count({ where: { fileId: row.id } }),
+    updateFileRecord(row.id, { ...(input.name ? { name: input.name } : {}), folderId }),
+    loadFileFolderName(userId, folderId), countFileVersions(row.id), countFileNoteAssociations(row.id),
   ]);
 
   return { file: fileToDTO(updated, folder?.name ?? null, versionCount, noteCount) };
@@ -154,16 +130,12 @@ export async function saveFileTextCommand(
   input: FileTextInput,
   fileNotFound: () => Error,
 ): Promise<{ file: GaiaFileDTO }> {
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  const row = await findOwnedFileRecord(userId, fileId);
   if (!row) throw fileNotFound();
 
   const [updated, folder, versionCount, noteCount] = await Promise.all([
-    db.gaiaFile.update({ where: { id: row.id }, data: { ocrText: input.text } }),
-    row.folderId
-      ? db.noteFolder.findFirst({ where: { userId, id: row.folderId }, select: { name: true } })
-      : Promise.resolve(null),
-    db.fileVersion.count({ where: { fileId: row.id } }),
-    db.noteFile.count({ where: { fileId: row.id } }),
+    saveFileOcrText(row.id, input.text), loadFileFolderName(userId, row.folderId),
+    countFileVersions(row.id), countFileNoteAssociations(row.id),
   ]);
   return { file: fileToDTO(updated, folder?.name ?? null, versionCount, noteCount) };
 }
@@ -175,22 +147,9 @@ export async function createFileAnnotationCommand(
   input: FileAnnotationInput,
   fileNotFound: () => Error,
 ): Promise<{ annotation: GaiaFileAnnotationDTO }> {
-  const file = await db.gaiaFile.findFirst({ where: { userId, id: fileId }, select: { id: true } });
+  const file = await findOwnedFileRecord(userId, fileId);
   if (!file) throw fileNotFound();
-  const created = await db.fileAnnotation.create({
-    data: {
-      fileId: file.id,
-      userId,
-      page: input.page,
-      x: input.x,
-      y: input.y,
-      width: input.width ?? null,
-      height: input.height ?? null,
-      type: input.type,
-      text: input.text,
-      color: input.color,
-    },
-  });
+  const created = await createFileAnnotationRecord({ fileId: file.id, userId, page: input.page, x: input.x, y: input.y, width: input.width ?? null, height: input.height ?? null, type: input.type, text: input.text, color: input.color });
   return { annotation: fileAnnotationToDTO(created) };
 }
 
@@ -201,11 +160,8 @@ export async function deleteFileAnnotationCommand(
   annotationId: string,
   annotationNotFound: () => Error,
 ): Promise<{ ok: true }> {
-  const annotation = await db.fileAnnotation.findFirst({
-    where: { userId, id: annotationId, fileId },
-    select: { id: true },
-  });
+  const annotation = await findOwnedFileAnnotation(userId, fileId, annotationId);
   if (!annotation) throw annotationNotFound();
-  await db.fileAnnotation.delete({ where: { id: annotation.id } });
+  await deleteFileAnnotationRecord(annotation.id);
   return { ok: true };
 }
