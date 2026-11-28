@@ -1,4 +1,8 @@
-import { db } from "@/shared/database/client";
+import {
+  createUserNoteTemplate,
+  findUserNoteTemplate,
+  loadUserNoteTemplates,
+} from "@/modules/notes/repositories/notes";
 import {
   templateCreateInputSchema,
   templateInstantiateInputSchema,
@@ -80,7 +84,7 @@ export async function findTemplateQuery(
   const builtIn = findBuiltInTemplate(templateId);
   if (builtIn) return builtInToDTO(builtIn);
 
-  const row = await db.noteTemplate.findFirst({ where: { userId, id: templateId } });
+  const row = await findUserNoteTemplate(userId, templateId);
   return row ? userTemplateToDTO(row, parseStoredBlocks) : null;
 }
 
@@ -88,10 +92,7 @@ export async function listTemplatesQuery(
   userId: string,
   parseStoredBlocks: TemplateDependencies["parseStoredBlocks"],
 ): Promise<{ templates: GaiaTemplateDTO[] }> {
-  const userTemplates = await db.noteTemplate.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
+  const userTemplates = await loadUserNoteTemplates(userId);
   return {
     templates: [
       ...builtInTemplates().map(builtInToDTO),
@@ -121,15 +122,13 @@ export async function createTemplateCommand(
   }
 
   deps.assertSafeImageSources(blocks);
-  const template = await db.noteTemplate.create({
-    data: {
-      userId,
-      name: parsed.name.trim(),
-      description: parsed.description.trim(),
-      icon: parsed.icon || "📄",
-      blocks: JSON.stringify(blocks),
-      builtIn: false,
-    },
+  const template = await createUserNoteTemplate({
+    userId,
+    name: parsed.name.trim(),
+    description: parsed.description.trim(),
+    icon: parsed.icon || "📄",
+    blocks: JSON.stringify(blocks),
+    builtIn: false,
   });
   return userTemplateToDTO(template, deps.parseStoredBlocks);
 }
