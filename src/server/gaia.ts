@@ -102,18 +102,18 @@ export type {
   GaiaMemoryStatsResponse,
 } from "@/modules/knowledge/types";
 import {
-  createNoteRelationCommand,
-  deleteNoteRelationCommand,
-  listNoteRelationsQuery,
-} from "@/modules/knowledge/services/relations";
+  createNoteRelation as createNoteRelationAdapter,
+  deleteNoteRelation as deleteNoteRelationAdapter,
+  getLinkSuggestions as getLinkSuggestionsAdapter,
+  getNoteLinks as getNoteLinksAdapter,
+  getOrphanNotes as getOrphanNotesAdapter,
+  listNoteRelations as listNoteRelationsAdapter,
+} from "@/server/gaia/knowledge-navigation";
 import { getOverviewQuery } from "@/modules/knowledge/services/overview";
-import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
-import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
-import { getOrphanNotesQuery } from "@/modules/knowledge/services/orphans";
 import { parseJsonProperties, tagNamesOf, toRow, noteResponse } from "@/modules/notes/mappers";
 import {
-  listUserRelations as loadRelations,
-  loadActiveNoteTitles as loadNoteTitles,
+  listUserRelations as loadRelationsRaw,
+  loadActiveNoteTitles as loadNoteTitlesRaw,
 } from "@/modules/knowledge/repositories/relations";
 import {
   purgeNote,
@@ -406,7 +406,7 @@ export async function listNoteRelations(
   userId: string,
   noteId: string,
 ): Promise<{ relations: GaiaNoteRelationDTO[] }> {
-  return listNoteRelationsQuery(userId, noteId, {
+  return listNoteRelationsAdapter(userId, noteId, {
     noteNotFound: NOTE_NOT_FOUND,
   });
 }
@@ -416,7 +416,7 @@ export async function createNoteRelation(
   noteId: string,
   input: unknown,
 ): Promise<{ relation: GaiaNoteRelationDTO }> {
-  return createNoteRelationCommand(userId, noteId, input, {
+  return createNoteRelationAdapter(userId, noteId, input, {
     validationError,
     noteNotFound: NOTE_NOT_FOUND,
     conflictError,
@@ -428,55 +428,55 @@ export async function deleteNoteRelation(
   noteId: string,
   relationId: string,
 ): Promise<{ ok: true }> {
-  return deleteNoteRelationCommand(userId, noteId, relationId, {
+  return deleteNoteRelationAdapter(userId, noteId, relationId, {
     relationNotFound: () => notFound("RELATION_NOT_FOUND", "Relation not found."),
   });
 }
 
-// ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
+// ── K02 / K03 / K04 — Backlinks// ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
 
 export async function getNoteLinks(
   userId: string,
   noteId: string,
 ): Promise<GaiaNoteLinksResponse> {
-  return getNoteLinksQuery(userId, noteId, {
+  return getNoteLinksAdapter(userId, noteId, {
     findActiveNote,
     loadFolders,
     loadTags,
-    loadRelations,
-    loadNoteTitles,
+    loadRelations: loadRelationsRaw,
+    loadNoteTitles: loadNoteTitlesRaw,
     toRow,
     noteNotFound: NOTE_NOT_FOUND,
   });
 }
 
-// ── K14 — Suggestions de liens ────────────────────────────────────────
+// ── K14 — Suggestions de liens// ── K14 — Suggestions de liens ────────────────────────────────────────
 
 export async function getLinkSuggestions(
   userId: string,
   noteId: string,
 ): Promise<{ suggestions: GaiaLinkSuggestion[] }> {
-  return getLinkSuggestionsQuery(userId, noteId, {
+  return getLinkSuggestionsAdapter(userId, noteId, {
     findActiveNote,
     getNoteLinks,
     noteNotFound: NOTE_NOT_FOUND,
   });
 }
 
-// ── K15 — Notes orphelines ─────────────────────────────────────────────
+// ── K15 — Notes orphelines// ── K15 — Notes orphelines ─────────────────────────────────────────────
 
 export async function getOrphanNotes(
   userId: string,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  return getOrphanNotesQuery(userId, {
+  return getOrphanNotesAdapter(userId, {
     loadFolders,
     loadTags,
-    loadRelations,
+    loadRelations: loadRelationsRaw,
     toRow,
   });
 }
 
-// ── K16 — Timeline des connaissances ──────────────────────────────────
+// ── K16 — Timeline des connaissances// ── K16 — Timeline des connaissances ──────────────────────────────────
 
 
 
