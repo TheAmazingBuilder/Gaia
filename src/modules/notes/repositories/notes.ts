@@ -124,6 +124,46 @@ export function deleteOwnedNote(noteId: string) {
   return db.note.delete({ where: { id: noteId } });
 }
 
+/** Read the user's daily writing goal. */
+export function loadDailyWordGoal(userId: string) {
+  return db.user.findUnique({
+    where: { id: userId },
+    select: { dailyWordGoal: true },
+  });
+}
+
+/** Persist the user's daily writing goal. */
+export function saveDailyWordGoal(userId: string, dailyWordGoal: number) {
+  return db.user.update({
+    where: { id: userId },
+    data: { dailyWordGoal },
+    select: { dailyWordGoal: true },
+  });
+}
+
+/** Read the user's timezone for local-day writing statistics. */
+export function loadUserTimezone(userId: string) {
+  return db.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  });
+}
+
+/** Load active notes touched during a computed local-day UTC interval. */
+export function loadNotesTouchedBetween(userId: string, start: Date, end: Date) {
+  return db.note.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      OR: [
+        { createdAt: { gte: start, lt: end } },
+        { updatedAt: { gte: start, lt: end } },
+      ],
+    },
+    select: { blocks: true },
+  });
+}
+
 /** Persist spaced-repetition metadata computed by the Notes domain service. */
 export function updateNoteReviewMetadata(
   noteId: string,
