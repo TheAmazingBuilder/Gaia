@@ -50,7 +50,7 @@ export async function findOwnedFileForDownload(userId: string, fileId: string) {
   return db.gaiaFile.findFirst({ where: { userId, id: fileId } });
 }
 
-/** Load file rows, folders and per-file counts for the list DTO. */
+/** Load file rows and per-file counts for the list DTO. */
 export async function loadFileListData(userId: string, filters: FileListFilters) {
   const where: Prisma.GaiaFileWhereInput = { userId };
   if (filters.q !== "") {
@@ -73,9 +73,8 @@ export async function loadFileListData(userId: string, filters: FileListFilters)
         ? { size: "desc" }
         : { createdAt: "desc" };
 
-  const [rows, folders, found] = await Promise.all([
+  const [rows, found] = await Promise.all([
     db.gaiaFile.findMany({ where, orderBy, take: 500 }),
-    db.noteFolder.findMany({ where: { userId }, orderBy: { name: "asc" } }),
     db.gaiaFile.findMany({ where, select: { id: true } }),
   ]);
   const ids = found.map((file) => file.id);
@@ -88,7 +87,6 @@ export async function loadFileListData(userId: string, filters: FileListFilters)
 
   return {
     rows,
-    folders,
     counts: {
       versions: new Map(versions.map((item) => [item.fileId, item._count._all])),
       links: new Map(links.map((item) => [item.fileId, item._count._all])),
@@ -106,10 +104,6 @@ export async function findOwnedFileDetail(userId: string, fileId: string) {
       notes: { include: { note: { select: { id: true, title: true, updatedAt: true } } } },
     },
   });
-}
-
-export async function loadUserFileFolders(userId: string) {
-  return db.noteFolder.findMany({ where: { userId }, orderBy: { name: "asc" } });
 }
 
 export async function loadUserFileStorageRows(userId: string) {
