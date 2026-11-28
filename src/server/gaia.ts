@@ -137,8 +137,11 @@ import {
   listTemplates,
 } from "@/server/gaia/templates";
 import { updateNoteCommand } from "@/modules/notes/services/update";
-import { getNoteQuery } from "@/modules/notes/services/details";
-import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
+import { loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
+import {
+  getNote as getNoteAdapter,
+  listNotes as listNotesAdapter,
+} from "@/server/gaia/notes-read";
 import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
@@ -233,7 +236,7 @@ export async function listNotes(
   userId: string,
   query: GaiaListQuery,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  return listNotesQuery(userId, query, {
+  return listNotesAdapter(userId, query, {
     validationError,
     collectionNotFound: () => notFound("COLLECTION_NOT_FOUND", "Collection not found."),
     collectionCriteriaSchema: gaiaCollectionCriteriaSchema,
@@ -247,7 +250,7 @@ export async function getNote(
   userId: string,
   noteId: string,
 ): Promise<GaiaNoteResponse> {
-  return getNoteQuery(userId, noteId, {
+  return getNoteAdapter(userId, noteId, {
     noteNotFound: NOTE_NOT_FOUND,
     findActiveNote,
     noteResponse: async (ownerId, note) => {
