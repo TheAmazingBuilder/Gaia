@@ -8,7 +8,10 @@ import {
   moveToPeriod,
 } from "@/lib/gaia/spaced-repetition";
 import type { Note } from "@prisma/client";
-import { findActiveNote, updateNoteReviewMetadata } from "@/modules/notes/repositories/notes";
+import {
+  findActiveNote,
+  updateNoteReviewMetadata,
+} from "@/modules/notes/repositories/notes";
 import { z } from "zod";
 import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
@@ -17,7 +20,6 @@ type ReviewDependencies = {
   noteNotFound: () => Error;
   noteResponse: (userId: string, note: Note) => Promise<GaiaNoteResponse>;
 };
-
 
 const reviewInputSchema = z.object({
   quality: z.number().int().min(0).max(3),
@@ -53,14 +55,13 @@ export async function reviewNoteCommand(
     now,
   );
   const updated = await updateNoteReviewMetadata(note.id, {
-      mastery: result.mastery,
-      intervalDays: result.intervalDays,
-      easeFactor: result.easeFactor,
-      nextReviewAt: result.nextReviewAt,
-      lastReviewedAt: now,
-      reviewCount: note.reviewCount + 1,
-      updatedAt: now,
-    },
+    mastery: result.mastery,
+    intervalDays: result.intervalDays,
+    easeFactor: result.easeFactor,
+    nextReviewAt: result.nextReviewAt,
+    lastReviewedAt: now,
+    reviewCount: note.reviewCount + 1,
+    updatedAt: now,
   });
   return deps.noteResponse(userId, updated);
 }
@@ -78,11 +79,10 @@ export async function moveNoteToMasteryCommand(
 
   const result = moveToMastery(parsed.mastery, new Date());
   const updated = await updateNoteReviewMetadata(note.id, {
-      mastery: result.mastery,
-      intervalDays: result.intervalDays,
-      nextReviewAt: result.nextReviewAt,
-      updatedAt: new Date(),
-    },
+    mastery: result.mastery,
+    intervalDays: result.intervalDays,
+    nextReviewAt: result.nextReviewAt,
+    updatedAt: new Date(),
   });
   return deps.noteResponse(userId, updated);
 }
@@ -100,10 +100,9 @@ export async function scheduleNoteCommand(
 
   const result = moveToPeriod(parsed.period, new Date());
   const updated = await updateNoteReviewMetadata(note.id, {
-      intervalDays: result.intervalDays,
-      nextReviewAt: result.nextReviewAt,
-      updatedAt: new Date(),
-    },
+    intervalDays: result.intervalDays,
+    nextReviewAt: result.nextReviewAt,
+    updatedAt: new Date(),
   });
   return deps.noteResponse(userId, updated);
 }
