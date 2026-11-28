@@ -1,18 +1,11 @@
-import { db } from "@/shared/database/client";
+import { loadKnowledgeTimelineData } from "@/modules/knowledge/repositories/timeline";
 import { isMasteryLevel } from "@/lib/gaia/spaced-repetition";
 import type { GaiaKnowledgeTimelineMonth } from "@/modules/knowledge/types";
 
 export async function getKnowledgeTimelineQuery(
   userId: string,
 ): Promise<{ months: GaiaKnowledgeTimelineMonth[] }> {
-  const [notes, relations] = await Promise.all([
-    db.note.findMany({
-      where: { userId, deletedAt: null },
-      select: { id: true, title: true, mastery: true, createdAt: true, updatedAt: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    db.noteRelation.findMany({ where: { userId }, select: { createdAt: true } }),
-  ]);
+  const [notes, relations] = await loadKnowledgeTimelineData(userId);
 
   const monthKey = (date: Date) =>
     `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
