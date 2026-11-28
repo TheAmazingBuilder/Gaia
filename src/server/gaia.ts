@@ -300,7 +300,7 @@ export async function instantiateTemplate(
   userId: string,
   input: unknown,
 ): Promise<GaiaNoteResponse> {
-  return instantiateTemplateAdapter(userId, input, createNote);
+  return instantiateTemplateAdapter(userId, input);
 }
 
 /* ── Overview ────────────────────────────────────────────────────────── */
