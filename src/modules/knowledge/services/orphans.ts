@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { flattenBlocks, parseJsonBlocks, parseJsonStringArray } from "@/lib/gaia/content";
 import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
 import type { GaiaNoteRow } from "@/modules/notes/types";
