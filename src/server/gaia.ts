@@ -13,12 +13,12 @@ export type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaCanvasItemDTO, GaiaInbo
 import { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
 export { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
 import {
-  listCollectionsQuery,
-  createCollectionCommand,
-  updateCollectionCommand,
-  deleteCollectionCommand,
-  listCollectionNotesQuery,
-} from "@/modules/knowledge/services/collections";
+  createCollection as createCollectionAdapter,
+  deleteCollection as deleteCollectionAdapter,
+  listCollectionNotes as listCollectionNotesAdapter,
+  listCollections as listCollectionsAdapter,
+  updateCollection as updateCollectionAdapter,
+} from "@/server/gaia/collections";
 import {
   listCanvasesQuery,
   getCanvasQuery,
@@ -489,14 +489,14 @@ const collectionDependencies = () => ({
 export async function listCollections(
   userId: string,
 ): Promise<{ collections: GaiaSmartCollectionDTO[] }> {
-  return listCollectionsQuery(userId, collectionDependencies());
+  return listCollectionsAdapter(userId, collectionDependencies());
 }
 
 export async function createCollection(
   userId: string,
   input: unknown,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  return createCollectionCommand(userId, input, collectionDependencies());
+  return createCollectionAdapter(userId, input, collectionDependencies());
 }
 
 export async function updateCollection(
@@ -504,14 +504,14 @@ export async function updateCollection(
   collectionId: string,
   input: unknown,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  return updateCollectionCommand(userId, collectionId, input, collectionDependencies());
+  return updateCollectionAdapter(userId, collectionId, input, collectionDependencies());
 }
 
 export async function deleteCollection(
   userId: string,
   collectionId: string,
 ): Promise<{ ok: true }> {
-  return deleteCollectionCommand(userId, collectionId, collectionDependencies());
+  return deleteCollectionAdapter(userId, collectionId, collectionDependencies());
 }
 
 export async function listCollectionNotes(
@@ -519,7 +519,7 @@ export async function listCollectionNotes(
   collectionId: string,
   page = 1,
 ): Promise<{ notes: GaiaNoteRow[]; total: number; collection: GaiaSmartCollectionDTO }> {
-  return listCollectionNotesQuery(userId, collectionId, page, collectionDependencies());
+  return listCollectionNotesAdapter(userId, collectionId, page, collectionDependencies());
 }
 
 // ── K09 — Canvas de connaissances ─────────────────────────────────────
