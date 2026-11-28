@@ -47,6 +47,14 @@ export function findActiveNote(userId: string, noteId: string): Promise<Note | n
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
 }
 
+/** Update the last-viewed timestamp after the service has resolved an active owned note. */
+export function updateNoteLastViewed(noteId: string): Promise<Note> {
+  return db.note.update({
+    where: { id: noteId },
+    data: { lastViewedAt: new Date() },
+  });
+}
+
 /** Find a smart collection owned by the requesting user. */
 export function findUserSmartCollection(userId: string, collectionId: string) {
   return db.smartCollection.findFirst({ where: { userId, id: collectionId } });
