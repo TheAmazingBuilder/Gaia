@@ -8,6 +8,7 @@ import {
   parseJsonStringArray,
 } from "@/lib/gaia/content";
 import { resolveNoteRefs } from "@/lib/gaia/refs";
+import { isMasteryLevel } from "@/lib/gaia/spaced-repetition";
 import { gaiaNotePropertySchema } from "@/modules/notes/schemas";
 import type {
   GaiaNoteDTO,
@@ -73,10 +74,7 @@ export function toRow(
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
     deletedAt: note.deletedAt?.toISOString() ?? null,
-    mastery: note.mastery === "forgotten" || note.mastery === "fragile" ||
-      note.mastery === "medium" || note.mastery === "mastered"
-      ? note.mastery
-      : "fragile",
+    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
     lastReviewedAt: note.lastReviewedAt?.toISOString() ?? null,
     nextReviewAt: note.nextReviewAt?.toISOString() ?? null,
     reviewCount: note.reviewCount,
@@ -103,10 +101,7 @@ export function toDTO(note: Note): GaiaNoteDTO {
     updatedAt: note.updatedAt.toISOString(),
     lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
     deletedAt: note.deletedAt?.toISOString() ?? null,
-    mastery: note.mastery === "forgotten" || note.mastery === "fragile" ||
-      note.mastery === "medium" || note.mastery === "mastered"
-      ? note.mastery
-      : "fragile",
+    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
     lastReviewedAt: note.lastReviewedAt?.toISOString() ?? null,
     nextReviewAt: note.nextReviewAt?.toISOString() ?? null,
     reviewCount: note.reviewCount,
