@@ -5,7 +5,7 @@ import {
   type GaiaBlock,
 } from "@/lib/gaia/content";
 
-type ValidationError = (message: string) => never;
+type ValidationError = (message: string) => Error;
 
 /**
  * Reject image/drawing sources with unsupported protocols and embeds that
