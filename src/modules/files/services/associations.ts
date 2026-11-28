@@ -1,4 +1,11 @@
-import { db } from "@/lib/db";
+import {
+  deleteNoteFileAssociation,
+  findOwnedFile,
+  findOwnedNote,
+  loadFilesForNote,
+  loadNotesForFile,
+  upsertNoteFileAssociation,
+} from "@/modules/files/repositories/associations";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
 
@@ -15,17 +22,13 @@ export async function attachFileToNoteCommand(
   errors: AssociationErrors,
 ): Promise<{ ok: true }> {
   const [note, file] = await Promise.all([
-    db.note.findFirst({ where: { userId, id: noteId, deletedAt: null }, select: { id: true } }),
-    db.gaiaFile.findFirst({ where: { userId, id: fileId }, select: { id: true } }),
+    findOwnedNote(userId, noteId, true),
+    findOwnedFile(userId, fileId),
   ]);
   if (!note) throw errors.noteNotFound();
   if (!file) throw errors.fileNotFound();
 
-  await db.noteFile.upsert({
-    where: { fileId_noteId: { fileId: file.id, noteId: note.id } },
-    create: { fileId: file.id, noteId: note.id },
-    update: {},
-  });
+  await upsertNoteFileAssociation(file.id, note.id);
   return { ok: true };
 }
 
@@ -36,9 +39,9 @@ export async function detachFileFromNoteCommand(
   fileId: string,
   noteNotFound: () => Error,
 ): Promise<{ ok: true }> {
-  const note = await db.note.findFirst({ where: { userId, id: noteId }, select: { id: true } });
+  const note = await findOwnedNote(userId, noteId);
   if (!note) throw noteNotFound();
-  await db.noteFile.deleteMany({ where: { fileId, noteId: note.id } });
+  await deleteNoteFileAssociation(fileId, note.id);
   return { ok: true };
 }
 
@@ -48,27 +51,10 @@ export async function listNoteFilesQuery(
   noteId: string,
   noteNotFound: () => Error,
 ): Promise<{ files: GaiaFileDTO[] }> {
-  const note = await db.note.findFirst({ where: { userId, id: noteId }, select: { id: true } });
+  const note = await findOwnedNote(userId, noteId);
   if (!note) throw noteNotFound();
 
-  const links = await db.noteFile.findMany({
-    where: { noteId: note.id, file: { userId } },
-    include: {
-      file: {
-        include: {
-          versions: { select: { id: true } },
-          notes: { select: { fileId: true } },
-        },
-      },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  const folderIds = [...new Set(links.flatMap(({ file }) => file.folderId ? [file.folderId] : []))];
-  const folders = folderIds.length
-    ? await db.noteFolder.findMany({ where: { userId, id: { in: folderIds } }, select: { id: true, name: true } })
-    : [];
-  const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]));
-
+  const { links, folderNames } = await loadFilesForNote(userId, note.id);
   return {
     files: links.map(({ file }) =>
       fileToDTO(
@@ -87,14 +73,10 @@ export async function listFileNotesQuery(
   fileId: string,
   fileNotFound: () => Error,
 ): Promise<{ notes: Array<{ id: string; title: string; updatedAt: string }> }> {
-  const file = await db.gaiaFile.findFirst({ where: { userId, id: fileId }, select: { id: true } });
+  const file = await findOwnedFile(userId, fileId);
   if (!file) throw fileNotFound();
 
-  const links = await db.noteFile.findMany({
-    where: { fileId: file.id, note: { userId } },
-    include: { note: { select: { id: true, title: true, updatedAt: true } } },
-    orderBy: { createdAt: "desc" },
-  });
+  const links = await loadNotesForFile(userId, file.id);
   return {
     notes: links.map(({ note }) => ({
       id: note.id,
