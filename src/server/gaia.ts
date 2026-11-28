@@ -166,11 +166,6 @@ import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositor
 import { assertSafeImageSources } from "@/modules/notes/content-validation";
 import { createEmptyParagraphBlock } from "@/modules/notes/services/block-copy";
 
-import {
-  suggestLinks,
-  tokenize,
-  weekStart,
-} from "@/lib/gaia/knowledge";
 
 /* ── Erreurs ─────────────────────────────────────────────────────────── */
 
