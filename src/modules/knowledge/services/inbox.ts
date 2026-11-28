@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { newBlockId, type GaiaBlock } from "@/lib/gaia/content";
 import { inboxInputSchema } from "@/modules/knowledge/schemas";
 import type { GaiaInboxItemDTO } from "@/modules/knowledge/types";
