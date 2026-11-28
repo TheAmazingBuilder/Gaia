@@ -71,7 +71,6 @@ export type {
   GaiaFileVersionDTO,
   GaiaStorageUsageDTO,
 } from "@/modules/files/types";
-import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
 import {
   createFileAnnotationCommand,
@@ -233,6 +232,7 @@ import {
   notFound,
   validationError,
 } from "@/shared/errors/gaia-error";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 export { GaiaError } from "@/shared/errors/gaia-error";
 
 const NOTE_NOT_FOUND = () => notFound("NOTE_NOT_FOUND", "Note not found.");
@@ -272,27 +272,7 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 
 
-type SafeParser<T> = {
-  safeParse: (
-    input: unknown,
-  ) =>
-    | { success: true; data: T }
-    | { success: false; error: z.ZodError };
-};
 
-function parseOrThrow<T>(schema: SafeParser<T>, input: unknown): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 /**
  * Rejette les blocs image/dessin dont le src utilise un protocole non
