@@ -130,3 +130,51 @@ export type GaiaMemoryGraphResponse = {
   edges: GaiaMemoryGraphEdge[];
   relationTypes: string[];
 };
+
+export type GaiaMemoryHeatmapDay = {
+  date: string;
+  reviews: number;
+  created: number;
+};
+
+export type GaiaMemoryTimelineNote = {
+  id: string;
+  title: string;
+  mastery: import("@/lib/gaia/spaced-repetition").MasteryLevel;
+  createdAt: string;
+};
+
+export type GaiaMemoryTimelineMonth = {
+  month: string;
+  count: number;
+  notes: GaiaMemoryTimelineNote[];
+};
+
+export type GaiaMemoryJournal = {
+  today: {
+    created: number;
+    reviewed: number;
+    dueRemaining: number;
+    newlyMastered: number;
+  };
+  week: {
+    created: number;
+    reviewed: number;
+  };
+};
+
+export type GaiaMemoryStatsResponse = {
+  totalNotes: number;
+  dueCount: number;
+  countsByMastery: Record<import("@/lib/gaia/spaced-repetition").MasteryLevel, number>;
+  score: number | null;
+  scoreParts: {
+    avgMastery: number;
+    dueClearance: number;
+    streakFactor: number;
+  };
+  streakDays: number;
+  heatmap: GaiaMemoryHeatmapDay[];
+  timeline: GaiaMemoryTimelineMonth[];
+  journal: GaiaMemoryJournal;
+};
