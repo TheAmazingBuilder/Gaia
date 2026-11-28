@@ -1,5 +1,5 @@
 import type { Note } from "@prisma/client";
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 
 /** Load the requesting user's folders in the same order used by the legacy facade. */
 export function loadFolders(userId: string) {
