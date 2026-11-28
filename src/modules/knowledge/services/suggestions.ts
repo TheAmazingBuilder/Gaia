@@ -6,10 +6,10 @@ import {
 } from "@/lib/gaia/content";
 import { suggestLinks } from "@/lib/gaia/knowledge";
 import type { GaiaLinkSuggestion } from "@/modules/knowledge/types";
-import type { Note } from "@prisma/client";
+import type { NoteRowInput } from "@/modules/notes/types/list";
 
 type LinkSuggestionDependencies = {
-  findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
+  findActiveNote: (userId: string, noteId: string) => Promise<NoteRowInput | null>;
   getNoteLinks: (userId: string, noteId: string) => Promise<{
     outgoing: Array<{ id: string }>;
     backlinks: Array<{ id: string }>;
