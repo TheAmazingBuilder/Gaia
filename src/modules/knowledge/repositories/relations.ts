@@ -28,3 +28,42 @@ export async function loadActiveNoteTitles(
     rows.map((row) => [row.id, row.title === "" ? "Untitled note" : row.title]),
   );
 }
+
+/** Find an active note owned by the user. */
+export function findActiveKnowledgeNote(userId: string, noteId: string) {
+  return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+}
+
+/** Check whether an identical directed relation already exists. */
+export function findUserNoteRelation(
+  userId: string,
+  fromNoteId: string,
+  toNoteId: string,
+  type: string,
+) {
+  return db.noteRelation.findFirst({
+    where: { userId, fromNoteId, toNoteId, type },
+  });
+}
+
+/** Persist a directed note relation. */
+export function createUserNoteRelation(
+  userId: string,
+  fromNoteId: string,
+  toNoteId: string,
+  type: string,
+) {
+  return db.noteRelation.create({
+    data: { userId, fromNoteId, toNoteId, type },
+  });
+}
+
+/** Find a relation only within the owning user's scope. */
+export function findUserNoteRelationById(userId: string, relationId: string) {
+  return db.noteRelation.findFirst({ where: { userId, id: relationId } });
+}
+
+/** Delete a relation by its primary key after ownership and endpoint checks. */
+export function deleteUserNoteRelation(relationId: string) {
+  return db.noteRelation.delete({ where: { id: relationId } });
+}
