@@ -30,3 +30,24 @@ export type NoteListRow = {
 export type NoteRowInput = NoteListRow & {
   blocks: string;
 };
+
+/** Minimal folder metadata consumed by Notes and Knowledge DTO mappers. */
+export type NoteFolderMappingRecord = {
+  id: string;
+  userId: string;
+  name: string;
+  parentId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/** Minimal tag metadata consumed by Notes and Knowledge DTO mappers. */
+export type NoteTagMappingRecord = {
+  id: string;
+  userId: string;
+  name: string;
+  parentId: string | null;
+  relatedIds: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
