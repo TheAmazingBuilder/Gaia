@@ -1,4 +1,3 @@
-import { db } from "@/shared/database/client";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
 import type { MasteryLevel, ReviewQuality, TimePeriod } from "@/lib/gaia/spaced-repetition";
 import {
@@ -9,6 +8,7 @@ import {
   moveToPeriod,
 } from "@/lib/gaia/spaced-repetition";
 import type { Note } from "@prisma/client";
+import { findActiveNote, updateNoteReviewMetadata } from "@/modules/notes/repositories/notes";
 import { z } from "zod";
 import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
@@ -43,7 +43,7 @@ export async function reviewNoteCommand(
   deps: ReviewDependencies,
 ): Promise<GaiaNoteResponse> {
   const parsed = parseOrThrow(reviewInputSchema, input, deps.validationError);
-  const note = await db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+  const note = await findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
   const now = new Date();
@@ -52,9 +52,7 @@ export async function reviewNoteCommand(
     parsed.quality as ReviewQuality,
     now,
   );
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
+  const updated = await updateNoteReviewMetadata(note.id, {
       mastery: result.mastery,
       intervalDays: result.intervalDays,
       easeFactor: result.easeFactor,
@@ -75,13 +73,11 @@ export async function moveNoteToMasteryCommand(
   deps: ReviewDependencies,
 ): Promise<GaiaNoteResponse> {
   const parsed = parseOrThrow(masteryInputSchema, input, deps.validationError);
-  const note = await db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+  const note = await findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
   const result = moveToMastery(parsed.mastery, new Date());
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
+  const updated = await updateNoteReviewMetadata(note.id, {
       mastery: result.mastery,
       intervalDays: result.intervalDays,
       nextReviewAt: result.nextReviewAt,
@@ -99,13 +95,11 @@ export async function scheduleNoteCommand(
   deps: ReviewDependencies,
 ): Promise<GaiaNoteResponse> {
   const parsed = parseOrThrow(scheduleInputSchema, input, deps.validationError);
-  const note = await db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+  const note = await findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
   const result = moveToPeriod(parsed.period, new Date());
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
+  const updated = await updateNoteReviewMetadata(note.id, {
       intervalDays: result.intervalDays,
       nextReviewAt: result.nextReviewAt,
       updatedAt: new Date(),
