@@ -22,7 +22,7 @@
  * render as "Unresolved reference" until/unless a target exists.
  * Only NOTE resolves for real — against the user's own active notes.
  */
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import type { GaiaBlock, GaiaRefKind } from "./content";
 
 export type GaiaRefHit = {
