@@ -20,3 +20,15 @@ export async function getNote(
 ): Promise<GaiaNoteResponse> {
   return getNoteQuery(userId, noteId, dependencies);
 }
+
+import { searchNotesQuery } from "@/modules/notes/services/search";
+
+type SearchNotesDependencies = Parameters<typeof searchNotesQuery>[2];
+
+export async function searchNotes(
+  userId: string,
+  query: string,
+  dependencies: SearchNotesDependencies,
+): ReturnType<typeof searchNotesQuery> {
+  return searchNotesQuery(userId, query, dependencies);
+}
