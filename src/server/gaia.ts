@@ -134,6 +134,7 @@ import {
   listNoteRelationsQuery,
 } from "@/modules/knowledge/services/relations";
 import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
+import { getOverviewQuery } from "@/modules/knowledge/services/overview";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
 import { getOrphanNotesQuery } from "@/modules/knowledge/services/orphans";
@@ -165,7 +166,7 @@ import {
   listTagsQuery,
   updateTagCommand,
 } from "@/modules/notes/services/tags";
-import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/services/list";
+import { listNotesQuery, NOTE_LIST_SELECT, type NoteRowInput } from "@/modules/notes/services/list";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
 import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
@@ -356,30 +357,19 @@ function assertSafeImageSources(blocks: GaiaBlock[]): void {
 
 /* ── Types de réponse ────────────────────────────────────────────────── */
 
-export type GaiaFolderDTO = NoteFolder & { noteCount: number };
-export type GaiaTagDTO = NoteTag & { noteCount: number };
-
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
 
-export type GaiaActivityWeek = { weekStart: string; created: number; edited: number };
-
-export type GaiaOverviewResponse = {
-  totals: {
-    notes: number;
-    createdThisWeek: number;
-    favorites: number;
-    folders: number;
-    tags: number;
-    trashed: number;
-  };
-  recentEdited: GaiaNoteRow[];
-  recentViewed: GaiaNoteRow[];
-  favorites: GaiaNoteRow[];
-  folders: GaiaFolderDTO[];
-  topTags: GaiaTagDTO[];
-  activity: GaiaActivityWeek[];
-  templates: GaiaTemplateDTO[];
-};
+import type {
+  GaiaFolderDTO,
+  GaiaTagDTO,
+  GaiaOverviewResponse,
+} from "@/modules/knowledge/types";
+export type {
+  GaiaFolderDTO,
+  GaiaTagDTO,
+  GaiaActivityWeek,
+  GaiaOverviewResponse,
+} from "@/modules/knowledge/types";
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
@@ -1323,105 +1313,17 @@ export async function instantiateTemplate(
 
 /* ── Overview ────────────────────────────────────────────────────────── */
 
-function startOfWeekMondayUTC(now: Date): Date {
-  const day = now.getUTCDay();
-  const mondayOffset = (day + 6) % 7;
-  const monday = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - mondayOffset),
-  );
-  return monday;
-}
-
 export async function getOverview(userId: string): Promise<GaiaOverviewResponse> {
-  const [folders, tags, allNotes] = await Promise.all([
-    loadFolders(userId),
-    loadTags(userId),
-    // Phase 2 perf (item 8) — narrow select, no blocks: counts, folders,
-    // tags and activity need scalars only. Blocks load once, bounded to
-    // the ≤16 rows actually displayed below.
-    db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT }),
-  ]);
-  const active = allNotes.filter((n) => n.deletedAt === null);
-  const trashed = allNotes.filter((n) => n.deletedAt !== null);
-  const weekAgo = Date.now() - 7 * 86_400_000;
-
-  const recentEdited = [...active]
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-    .slice(0, 6);
-  const recentViewed = active
-    .filter((n) => n.lastViewedAt !== null)
-    .sort((a, b) => (b.lastViewedAt?.getTime() ?? 0) - (a.lastViewedAt?.getTime() ?? 0))
-    .slice(0, 5);
-  const favorites = active
-    .filter((n) => n.favorite)
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-    .slice(0, 5);
-
-  const blocksById = await loadBlocksFor([
-    ...new Set(
-      [...recentEdited, ...recentViewed, ...favorites].map((n) => n.id)
-    ),
-  ]);
-  const toDisplayRow = (n: NoteListRow): GaiaNoteRow =>
-    toRow({ ...n, blocks: blocksById.get(n.id) ?? "[]" }, folders, tags);
-
-  const foldersWithCounts: GaiaFolderDTO[] = folders
-    .map((folder) => ({
-      ...folder,
-      noteCount: active.filter((n) => n.folderId === folder.id).length,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const tagsWithCounts: GaiaTagDTO[] = tags
-    .map((tag) => ({
-      ...tag,
-      noteCount: active.filter((n) =>
-        parseJsonStringArray(n.tagIds).includes(tag.id),
-      ).length,
-    }))
-    .sort((a, b) => b.noteCount - a.noteCount || a.name.localeCompare(b.name));
-
-  const monday = startOfWeekMondayUTC(new Date());
-  const activity: GaiaActivityWeek[] = [];
-  for (let offset = 7; offset >= 0; offset--) {
-    const weekStartMs = monday.getTime() - offset * 7 * 86_400_000;
-    const weekEndMs = weekStartMs + 7 * 86_400_000;
-    const createdInWeek = active.filter(
-      (n) => n.createdAt.getTime() >= weekStartMs && n.createdAt.getTime() < weekEndMs,
-    );
-    const createdIds = new Set(createdInWeek.map((n) => n.id));
-    const editedInWeek = active.filter(
-      (n) =>
-        n.updatedAt.getTime() >= weekStartMs &&
-        n.updatedAt.getTime() < weekEndMs &&
-        !createdIds.has(n.id),
-    );
-    activity.push({
-      weekStart: new Date(weekStartMs).toISOString().slice(0, 10),
-      created: createdInWeek.length,
-      edited: editedInWeek.length,
-    });
-  }
-
-  const { templates } = await listTemplates(userId);
-
-  return {
-    totals: {
-      notes: active.length,
-      createdThisWeek: active.filter((n) => n.createdAt.getTime() >= weekAgo).length,
-      favorites: active.filter((n) => n.favorite).length,
-      folders: folders.length,
-      tags: tags.length,
-      trashed: trashed.length,
-    },
-    recentEdited: recentEdited.map(toDisplayRow),
-    recentViewed: recentViewed.map(toDisplayRow),
-    favorites: favorites.map(toDisplayRow),
-    folders: foldersWithCounts,
-    topTags: tagsWithCounts.slice(0, 8),
-    activity,
-    templates: templates.slice(0, 4),
-  };
+  return getOverviewQuery(userId, {
+    loadFolders,
+    loadTags,
+    loadNotes: (ownerId) =>
+      db.note.findMany({ where: { userId: ownerId }, select: NOTE_LIST_SELECT }),
+    loadBlocksFor,
+    toRow,
+    parseTagIds: parseJsonStringArray,
+    listTemplates: (ownerId) => listTemplatesQuery(ownerId, parseJsonBlocks),
+  });
 }
 
 /* ── Recherche ───────────────────────────────────────────────────────── */
