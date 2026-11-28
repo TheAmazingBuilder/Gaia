@@ -120,6 +120,7 @@ import type {
   GaiaNoteLinksResponse,
   GaiaLinkSuggestion,
   GaiaMemoryGraphResponse,
+  GaiaMemoryStatsResponse,
 } from "@/modules/knowledge/types";
 export type {
   GaiaKnowledgeTimelineMonth,
@@ -131,6 +132,11 @@ export type {
   GaiaMemoryGraphNode,
   GaiaMemoryGraphEdge,
   GaiaMemoryGraphResponse,
+  GaiaMemoryHeatmapDay,
+  GaiaMemoryTimelineNote,
+  GaiaMemoryTimelineMonth,
+  GaiaMemoryJournal,
+  GaiaMemoryStatsResponse,
 } from "@/modules/knowledge/types";
 import {
   createNoteRelationCommand,
@@ -139,6 +145,7 @@ import {
 } from "@/modules/knowledge/services/relations";
 import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
 import { getMemoryGraphQuery } from "@/modules/knowledge/services/memory-graph";
+import { getMemoryStatsQuery } from "@/modules/knowledge/services/memory-stats";
 import { getOverviewQuery } from "@/modules/knowledge/services/overview";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
@@ -211,9 +218,7 @@ import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib
 import {
   isMasteryLevel,
   isTimePeriod,
-  MASTERY_VALUE,
   periodOf,
-  type MasteryLevel,
   type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
 import {
@@ -793,71 +798,6 @@ export async function getMemoryGraph(
   return getMemoryGraphQuery(userId, { loadTags });
 }
 
-export type GaiaMemoryHeatmapDay = {
-  /** UTC date, YYYY-MM-DD. */
-  date: string;
-  /** Reviews completed that day (see note below). */
-  reviews: number;
-  /** Notes created that day. */
-  created: number;
-};
-
-export type GaiaMemoryTimelineNote = {
-  id: string;
-  title: string;
-  mastery: MasteryLevel;
-  /** ISO timestamp of creation. */
-  createdAt: string;
-};
-
-export type GaiaMemoryTimelineMonth = {
-  /** Month key, YYYY-MM (UTC). */
-  month: string;
-  /** Total notes created that month (the list below is capped at 20). */
-  count: number;
-  /** Newest first, max 20. */
-  notes: GaiaMemoryTimelineNote[];
-};
-
-export type GaiaMemoryJournal = {
-  today: {
-    created: number;
-    /** See the caveat in getMemoryStats (derived from lastReviewedAt). */
-    reviewed: number;
-    dueRemaining: number;
-    /** See the caveat in getMemoryStats (mastered + reviewed today). */
-    newlyMastered: number;
-  };
-  week: {
-    created: number;
-    reviewed: number;
-  };
-};
-
-export type GaiaMemoryStatsResponse = {
-  totalNotes: number;
-  dueCount: number;
-  countsByMastery: Record<MasteryLevel, number>;
-  /** null when the workspace has no notes yet (empty state). */
-  score: number | null;
-  scoreParts: {
-    /** Mean mastery value (forgotten 0, fragile 0.33, medium 0.66, mastered 1). */
-    avgMastery: number;
-    /** 1 − dueCount / totalNotes. */
-    dueClearance: number;
-    /** min(7, streakDays) / 7. */
-    streakFactor: number;
-  };
-  /** Consecutive days with ≥ 1 review, ending today or yesterday. */
-  streakDays: number;
-  /** 26 weeks × 7 days, oldest first, ending today (UTC). */
-  heatmap: GaiaMemoryHeatmapDay[];
-  /** Phase 2 — Timeline: months newest first, max 12 months. */
-  timeline: GaiaMemoryTimelineMonth[];
-  /** Phase 2 — Daily journal, computed on the fly (no new table). */
-  journal: GaiaMemoryJournal;
-};
-
 /**
  * Memory Score — transparent formula (also documented in the README):
  *
@@ -879,167 +819,7 @@ export type GaiaMemoryStatsResponse = {
 export async function getMemoryStats(
   userId: string,
 ): Promise<GaiaMemoryStatsResponse> {
-  const notes = await db.note.findMany({
-    where: { userId, deletedAt: null },
-    select: {
-      id: true,
-      title: true,
-      mastery: true,
-      lastReviewedAt: true,
-      nextReviewAt: true,
-      createdAt: true,
-    },
-  });
-  const now = new Date();
-  const totalNotes = notes.length;
-
-  const countsByMastery: Record<MasteryLevel, number> = {
-    forgotten: 0,
-    fragile: 0,
-    medium: 0,
-    mastered: 0,
-  };
-  let masterySum = 0;
-  let dueCount = 0;
-  for (const note of notes) {
-    const level: MasteryLevel = isMasteryLevel(note.mastery)
-      ? note.mastery
-      : "fragile";
-    countsByMastery[level] += 1;
-    masterySum += MASTERY_VALUE[level];
-    if (note.nextReviewAt === null || note.nextReviewAt.getTime() <= now.getTime()) {
-      dueCount += 1;
-    }
-  }
-
-  // ── Heatmap: 182 days ending today (UTC) ──
-  const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
-  const todayKey = dayKey(now);
-  const heatmap: GaiaMemoryHeatmapDay[] = [];
-  const byDay = new Map<string, GaiaMemoryHeatmapDay>();
-  for (let i = 181; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 86_400_000);
-    const day = { date: dayKey(d), reviews: 0, created: 0 };
-    heatmap.push(day);
-    byDay.set(day.date, day);
-  }
-  for (const note of notes) {
-    const created = byDay.get(dayKey(note.createdAt));
-    if (created) created.created += 1;
-    if (note.lastReviewedAt !== null) {
-      const reviewed = byDay.get(dayKey(note.lastReviewedAt));
-      if (reviewed) reviewed.reviews += 1;
-    }
-  }
-
-  // ── Streak: consecutive days with ≥ 1 review, ending today or yesterday.
-  const reviewDays = new Set(
-    notes
-      .filter((n) => n.lastReviewedAt !== null)
-      .map((n) => dayKey(n.lastReviewedAt as Date)),
-  );
-  let streakDays = 0;
-  // If today has no review yet, the streak may still be alive from yesterday.
-  let cursor = reviewDays.has(todayKey) ? 0 : 1;
-  while (reviewDays.has(dayKey(new Date(now.getTime() - cursor * 86_400_000)))) {
-    streakDays += 1;
-    cursor += 1;
-  }
-
-  // ── Phase 2 — Timeline: notes grouped by creation month (UTC),
-  //    newest month first, max 12 months, max 20 notes per month.
-  const timelineByMonth = new Map<string, GaiaMemoryTimelineNote[]>();
-  const countByMonth = new Map<string, number>();
-  for (const note of [...notes].sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-  )) {
-    const month = note.createdAt.toISOString().slice(0, 7);
-    countByMonth.set(month, (countByMonth.get(month) ?? 0) + 1);
-    const list = timelineByMonth.get(month) ?? [];
-    if (list.length < 20) {
-      list.push({
-        id: note.id,
-        title: note.title,
-        mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
-        createdAt: note.createdAt.toISOString(),
-      });
-    }
-    timelineByMonth.set(month, list);
-  }
-  const timeline: GaiaMemoryTimelineMonth[] = [...timelineByMonth.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .slice(0, 12)
-    .map(([month, monthNotes]) => ({
-      month,
-      count: countByMonth.get(month) ?? monthNotes.length,
-      notes: monthNotes,
-    }));
-
-  // ── Phase 2 — Daily journal (computed on the fly, no new table).
-  //    Caveat (same as the heatmap above): there is no review-history
-  //    table, so "reviewed today / this week" is derived from each
-  //    note's lastReviewedAt — a note reviewed twice on different days
-  //    counts only on its most recent review day. "newlyMastered" is
-  //    likewise approximate: notes that are mastered AND were reviewed
-  //    today (a note mastered long ago and re-reviewed today counts).
-  //    "created" and "dueRemaining" are exact.
-  const startOfTodayUtc = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
-  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
-  const journal: GaiaMemoryJournal = {
-    today: {
-      created: notes.filter((n) => n.createdAt >= startOfTodayUtc).length,
-      reviewed: notes.filter(
-        (n) => n.lastReviewedAt !== null && n.lastReviewedAt >= startOfTodayUtc,
-      ).length,
-      dueRemaining: dueCount,
-      newlyMastered: notes.filter(
-        (n) =>
-          n.mastery === "mastered" &&
-          n.lastReviewedAt !== null &&
-          n.lastReviewedAt >= startOfTodayUtc,
-      ).length,
-    },
-    week: {
-      created: notes.filter((n) => n.createdAt >= weekAgo).length,
-      reviewed: notes.filter(
-        (n) => n.lastReviewedAt !== null && n.lastReviewedAt >= weekAgo,
-      ).length,
-    },
-  };
-
-  if (totalNotes === 0) {
-    return {
-      totalNotes: 0,
-      dueCount: 0,
-      countsByMastery,
-      score: null,
-      scoreParts: { avgMastery: 0, dueClearance: 0, streakFactor: 0 },
-      streakDays,
-      heatmap,
-      timeline,
-      journal,
-    };
-  }
-
-  const avgMastery = masterySum / totalNotes;
-  const dueClearance = 1 - dueCount / Math.max(1, totalNotes);
-  const streakFactor = Math.min(7, streakDays) / 7;
-  const score = Math.round(
-    100 * (0.55 * avgMastery + 0.25 * dueClearance + 0.2 * streakFactor),
-  );
-  return {
-    totalNotes,
-    dueCount,
-    countsByMastery,
-    score,
-    scoreParts: { avgMastery, dueClearance, streakFactor },
-    streakDays,
-    heatmap,
-    timeline,
-    journal,
-  };
+  return getMemoryStatsQuery(userId);
 }
 
 /* ── Versions ────────────────────────────────────────────────────────── */
