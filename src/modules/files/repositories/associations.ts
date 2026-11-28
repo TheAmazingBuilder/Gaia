@@ -1,13 +1,6 @@
 import { db } from "@/shared/database/client";
 
 /** Persistence operations for file/note associations. */
-export async function findOwnedNote(userId: string, noteId: string, activeOnly = false) {
-  return db.note.findFirst({
-    where: { userId, id: noteId, ...(activeOnly ? { deletedAt: null } : {}) },
-    select: { id: true },
-  });
-}
-
 export async function findOwnedFile(userId: string, fileId: string) {
   return db.gaiaFile.findFirst({ where: { userId, id: fileId }, select: { id: true } });
 }
@@ -25,7 +18,7 @@ export async function deleteNoteFileAssociation(fileId: string, noteId: string) 
 }
 
 export async function loadFilesForNote(userId: string, noteId: string) {
-  const links = await db.noteFile.findMany({
+  return db.noteFile.findMany({
     where: { noteId, file: { userId } },
     include: {
       file: {
@@ -37,14 +30,6 @@ export async function loadFilesForNote(userId: string, noteId: string) {
     },
     orderBy: { createdAt: "asc" },
   });
-  const folderIds = [...new Set(links.flatMap(({ file }) => file.folderId ? [file.folderId] : []))];
-  const folders = folderIds.length
-    ? await db.noteFolder.findMany({
-        where: { userId, id: { in: folderIds } },
-        select: { id: true, name: true },
-      })
-    : [];
-  return { links, folderNames: new Map(folders.map((folder) => [folder.id, folder.name])) };
 }
 
 export async function loadNotesForFile(userId: string, fileId: string) {
