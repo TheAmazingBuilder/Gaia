@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Gaïa : workspace de notes, accès données côté serveur (userId-scoped).
  *
