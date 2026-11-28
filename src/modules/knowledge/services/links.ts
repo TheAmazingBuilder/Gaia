@@ -3,21 +3,29 @@ import { flattenBlocks } from "@/lib/gaia/tree";
 import { parseJsonBlocks } from "@/lib/gaia/block-serialization";
 import { excerptOf, searchSnippet, textOfBlocks } from "@/lib/gaia/text";
 import type { GaiaNoteLinksResponse } from "@/modules/knowledge/types";
-import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
+import type { Note, NoteFolder, NoteTag } from "@prisma/client";
 import type { GaiaNoteRow } from "@/modules/notes/types";
+
+type NoteRelationRecord = {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: string;
+  createdAt: Date;
+};
 
 type NoteLinksDependencies = {
   findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
   loadFolders: (userId: string) => Promise<NoteFolder[]>;
   loadTags: (userId: string) => Promise<NoteTag[]>;
-  loadRelations: (userId: string) => Promise<NoteRelation[]>;
+  loadRelations: (userId: string) => Promise<NoteRelationRecord[]>;
   loadNoteTitles: (userId: string, ids: string[]) => Promise<Map<string, string>>;
   toRow: (note: Note, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
   noteNotFound: () => Error;
 };
 
 function relationToDTO(
-  relation: NoteRelation,
+  relation: NoteRelationRecord,
   direction: "outgoing" | "incoming",
   otherTitle: string,
 ) {
