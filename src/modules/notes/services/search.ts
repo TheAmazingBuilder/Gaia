@@ -11,6 +11,7 @@ type SearchNotesDependencies = {
   parseTagIds: (raw: string | null | undefined) => string[];
   textOfBlocks: (blocks: GaiaBlock[]) => string;
   searchSnippet: (blocks: GaiaBlock[], query: string) => string;
+  excerptOf: (blocks: GaiaBlock[]) => string;
   tagNamesOf: (tagIds: string[], tags: NoteTag[]) => string[];
   toRow: (note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
 };
@@ -44,7 +45,7 @@ export async function searchNotesQuery(
     const row = deps.toRow(note, folders, tags);
     results.push({
       ...row,
-      snippet: textHit ? deps.searchSnippet(blocks, query) : deps.textOfBlocks(blocks).slice(0, 180),
+      snippet: textHit ? deps.searchSnippet(blocks, query) : deps.excerptOf(blocks),
     });
   }
 
