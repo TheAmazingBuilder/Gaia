@@ -3,7 +3,11 @@ import { flattenBlocks } from "@/lib/gaia/tree";
 import { parseJsonBlocks } from "@/lib/gaia/block-serialization";
 import { excerptOf, searchSnippet, textOfBlocks } from "@/lib/gaia/text";
 import type { GaiaNoteLinksResponse } from "@/modules/knowledge/types";
-import type { Note, NoteFolder, NoteTag } from "@prisma/client";
+import type {
+  NoteFolderMappingRecord,
+  NoteRowInput,
+  NoteTagMappingRecord,
+} from "@/modules/notes/types/list";
 import type { GaiaNoteRow } from "@/modules/notes/types";
 
 type NoteRelationRecord = {
@@ -15,12 +19,16 @@ type NoteRelationRecord = {
 };
 
 type NoteLinksDependencies = {
-  findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
-  loadFolders: (userId: string) => Promise<NoteFolder[]>;
-  loadTags: (userId: string) => Promise<NoteTag[]>;
+  findActiveNote: (userId: string, noteId: string) => Promise<NoteRowInput | null>;
+  loadFolders: (userId: string) => Promise<NoteFolderMappingRecord[]>;
+  loadTags: (userId: string) => Promise<NoteTagMappingRecord[]>;
   loadRelations: (userId: string) => Promise<NoteRelationRecord[]>;
   loadNoteTitles: (userId: string, ids: string[]) => Promise<Map<string, string>>;
-  toRow: (note: Note, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
+  toRow: (
+    note: NoteRowInput,
+    folders: NoteFolderMappingRecord[],
+    tags: NoteTagMappingRecord[],
+  ) => GaiaNoteRow;
   noteNotFound: () => Error;
 };
 
