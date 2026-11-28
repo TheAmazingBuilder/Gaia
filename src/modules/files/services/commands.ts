@@ -1,21 +1,16 @@
 import {
-  countFileNoteAssociations, countFileVersions, createFileAnnotationRecord,
-  createFileWithFirstVersion, deleteFileAnnotationRecord, findOwnedFileAnnotation,
-  findOwnedFileRecord, saveFileOcrText, updateFileRecord,
+  countFileVersions, createFileAnnotationRecord, createFileWithFirstVersion,
+  deleteFileAnnotationRecord, findOwnedFileAnnotation, findOwnedFileRecord,
+  saveFileOcrText, updateFileRecord,
 } from "@/modules/files/repositories/commands";
 import {
+  countNotesAttachedToFile,
   findFolderForFile,
 } from "@/modules/notes/contracts/files";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
-import type {
-  fileAnnotationInputSchema,
-  fileTextInputSchema,
-} from "@/modules/files/schemas";
-import type {
-  GaiaFileAnnotationDTO,
-  GaiaFileDTO,
-} from "@/modules/files/types";
+import type { fileAnnotationInputSchema, fileTextInputSchema } from "@/modules/files/schemas";
+import type { GaiaFileAnnotationDTO, GaiaFileDTO } from "@/modules/files/types";
 import type { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -41,12 +36,7 @@ type CreateFileStorage = {
   isConfigured: () => boolean;
   getClient: () => SupabaseClient | null;
   pathFor: (userId: string, fileId: string, version: number, name: string) => string;
-  upload: (
-    client: SupabaseClient,
-    path: string,
-    buffer: Buffer,
-    mimeType: string,
-  ) => Promise<{ ok: boolean; error?: string }>;
+  upload: (client: SupabaseClient, path: string, buffer: Buffer, mimeType: string) => Promise<{ ok: boolean; error?: string }>;
   remove: (client: SupabaseClient, paths: string[]) => Promise<void>;
 };
 
@@ -63,9 +53,7 @@ export async function createFileCommand(
 
   const name = input.name.trim().slice(0, 200);
   if (name === "") throw errors.validationError("File name is required.");
-  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
-    throw errors.validationError("File size is out of bounds.");
-  }
+  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) throw errors.validationError("File size is out of bounds.");
 
   let folderId: string | null = null;
   if (input.folderId) {
@@ -77,9 +65,7 @@ export async function createFileCommand(
   const id = `cm${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const path = storage.pathFor(userId, id, 1, name);
   const uploaded = await storage.upload(client, path, input.buffer, input.mimeType);
-  if (!uploaded.ok) {
-    throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
-  }
+  if (!uploaded.ok) throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
 
   try {
     const row = await createFileWithFirstVersion({ id, userId, name, mimeType: input.mimeType.slice(0, 200), size: input.size, storagePath: path, folderId });
@@ -91,10 +77,7 @@ export async function createFileCommand(
   }
 }
 
-type FileCommandErrors = {
-  fileNotFound: () => Error;
-  folderNotFound: () => Error;
-};
+type FileCommandErrors = { fileNotFound: () => Error; folderNotFound: () => Error };
 
 /** F01 — rename or move a file. */
 export async function updateFileCommand(
@@ -108,9 +91,8 @@ export async function updateFileCommand(
 
   let folderId = row.folderId;
   if (input.folderId !== undefined) {
-    if (input.folderId === null) {
-      folderId = null;
-    } else {
+    if (input.folderId === null) folderId = null;
+    else {
       const folder = await findFolderForFile(userId, input.folderId);
       if (!folder) throw errors.folderNotFound();
       folderId = folder.id;
@@ -120,9 +102,9 @@ export async function updateFileCommand(
   const [updated, folder, versionCount, noteCount] = await Promise.all([
     updateFileRecord(row.id, { ...(input.name ? { name: input.name } : {}), folderId }),
     folderId ? findFolderForFile(userId, folderId) : Promise.resolve(null),
-    countFileVersions(row.id), countFileNoteAssociations(row.id),
+    countFileVersions(row.id),
+    countNotesAttachedToFile(row.id),
   ]);
-
   return { file: fileToDTO(updated, folder?.name ?? null, versionCount, noteCount) };
 }
 
@@ -139,7 +121,8 @@ export async function saveFileTextCommand(
   const [updated, folder, versionCount, noteCount] = await Promise.all([
     saveFileOcrText(row.id, input.text),
     row.folderId ? findFolderForFile(userId, row.folderId) : Promise.resolve(null),
-    countFileVersions(row.id), countFileNoteAssociations(row.id),
+    countFileVersions(row.id),
+    countNotesAttachedToFile(row.id),
   ]);
   return { file: fileToDTO(updated, folder?.name ?? null, versionCount, noteCount) };
 }
