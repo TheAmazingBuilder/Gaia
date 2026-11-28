@@ -399,26 +399,17 @@ export async function getOrphanNotes(
 
 // ── K06 — Collections dynamiques ──────────────────────────────────────
 
-const collectionDependencies = () => ({
-  validationError,
-  collectionNotFound: () => notFound("COLLECTION_NOT_FOUND", "Collection not found."),
-  folderNotFound: FOLDER_NOT_FOUND,
-  loadFolders,
-  parseJsonProperties,
-  listNotes,
-});
-
 export async function listCollections(
   userId: string,
 ): Promise<{ collections: GaiaSmartCollectionDTO[] }> {
-  return listCollectionsAdapter(userId, collectionDependencies());
+  return listCollectionsAdapter(userId);
 }
 
 export async function createCollection(
   userId: string,
   input: unknown,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  return createCollectionAdapter(userId, input, collectionDependencies());
+  return createCollectionAdapter(userId, input);
 }
 
 export async function updateCollection(
@@ -426,14 +417,14 @@ export async function updateCollection(
   collectionId: string,
   input: unknown,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  return updateCollectionAdapter(userId, collectionId, input, collectionDependencies());
+  return updateCollectionAdapter(userId, collectionId, input);
 }
 
 export async function deleteCollection(
   userId: string,
   collectionId: string,
 ): Promise<{ ok: true }> {
-  return deleteCollectionAdapter(userId, collectionId, collectionDependencies());
+  return deleteCollectionAdapter(userId, collectionId);
 }
 
 export async function listCollectionNotes(
@@ -441,7 +432,7 @@ export async function listCollectionNotes(
   collectionId: string,
   page = 1,
 ): Promise<{ notes: GaiaNoteRow[]; total: number; collection: GaiaSmartCollectionDTO }> {
-  return listCollectionNotesAdapter(userId, collectionId, page, collectionDependencies());
+  return listCollectionNotesAdapter(userId, collectionId, page);
 }
 
 // ── K09 — Canvas de connaissances ─────────────────────────────────────
