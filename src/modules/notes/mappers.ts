@@ -16,7 +16,12 @@ import type {
   GaiaNoteResponse,
   GaiaNoteRow,
 } from "@/modules/notes/types";
-import type { NoteRowInput } from "@/modules/notes/services/list";
+type NoteMappingRow = Pick<Note,
+  | "id" | "title" | "icon" | "folderId" | "tagIds" | "favorite" | "templateId"
+  | "blocks" | "cover" | "wordGoal" | "properties" | "createdAt" | "updatedAt"
+  | "lastViewedAt" | "deletedAt" | "mastery" | "lastReviewedAt" | "nextReviewAt"
+  | "reviewCount" | "easeFactor" | "intervalDays"
+>;
 
 export function parseJsonProperties(raw: string | null | undefined): GaiaNoteProperty[] {
   if (!raw) return [];
@@ -46,7 +51,7 @@ export function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
 }
 
 export function toRow(
-  note: NoteRowInput,
+  note: NoteMappingRow,
   folders: NoteFolder[],
   tags: NoteTag[],
 ): GaiaNoteRow {
