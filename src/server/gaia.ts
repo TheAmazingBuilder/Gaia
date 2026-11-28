@@ -147,7 +147,7 @@ import {
 
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
-import { restoreVersionCommand } from "@/modules/notes/services/versions";
+
 import {
   moveNoteToMastery,
   reviewNote,
@@ -166,12 +166,12 @@ import {
 } from "@/lib/gaia/content";
 import { listRefs as listRefsRaw, type GaiaRefHit } from "@/lib/gaia/refs";
 
-import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
+
 import { normalizeProperties } from "@/modules/notes/normalization";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 import { assertSafeImageSources } from "@/modules/notes/content-validation";
 import { createEmptyParagraphBlock } from "@/modules/notes/services/block-copy";
-import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
+
 import {
   suggestLinks,
   tokenize,
@@ -189,7 +189,7 @@ export { GaiaError } from "@/shared/errors/gaia-error";
 
 const NOTE_NOT_FOUND = () => notFound("NOTE_NOT_FOUND", "Note not found.");
 const FOLDER_NOT_FOUND = () => notFound("FOLDER_NOT_FOUND", "Folder not found.");
-const VERSION_NOT_FOUND = () => notFound("VERSION_NOT_FOUND", "Version not found.");
+
 
 export { gaiaErrorResponse } from "@/shared/http/gaia-error-response";
 
@@ -327,24 +327,11 @@ export async function getMemoryStats(
 
 /* ── Versions ────────────────────────────────────────────────────────── */
 
-export { listVersions, getVersion } from "@/server/gaia/versions";
+export { listVersions, getVersion, restoreVersion } from "@/server/gaia/versions";
 
-export async function restoreVersion(
-  userId: string,
-  noteId: string,
-  versionId: string,
-): Promise<GaiaNoteResponse> {
-  return restoreVersionCommand(userId, noteId, versionId, {
-    noteNotFound: NOTE_NOT_FOUND,
-    versionNotFound: VERSION_NOT_FOUND,
-    maybeSnapshotVersion: createNoteSnapshotIfNeeded,
-    cloneBlocksWithNewIds,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
-}
+
+
+
 
 export {
   listFolders,
