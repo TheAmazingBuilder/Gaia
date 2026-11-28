@@ -3,7 +3,7 @@ import {
   createRestoredFileVersion,
   deleteFileAndVersions,
   findOwnedFileForLifecycle,
-  findOwnedFileVersion,
+  findFileVersion,
   loadFileLifecycleMetadata,
 } from "@/modules/files/repositories/lifecycle";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
@@ -114,7 +114,7 @@ export async function restoreFileVersionCommand(
   const row = await findOwnedFileForLifecycle(userId, fileId);
   if (!row) throw errors.fileNotFound();
 
-  const target = await findOwnedFileVersion(userId, row.id, version);
+  const target = await findFileVersion(row.id, version);
   if (!target) throw errors.versionNotFound();
   if (target.storagePath === row.storagePath) {
     throw errors.validationError("This version is already the current one.");
