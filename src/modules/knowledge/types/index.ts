@@ -72,3 +72,11 @@ export type GaiaCanvasDTO = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type GaiaInboxItemDTO = {
+  id: string;
+  text: string;
+  doneAt: string | null;
+  noteId: string | null;
+  createdAt: string;
+};
