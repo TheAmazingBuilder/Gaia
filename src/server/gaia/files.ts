@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Adaptateurs serveur publics du module Files.
  * Préserve les signatures historiques consommées par les routes API.
