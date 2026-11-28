@@ -1,4 +1,11 @@
-import { db } from "@/lib/db";
+import {
+  createReplacementFileVersion,
+  createRestoredFileVersion,
+  deleteFileAndVersions,
+  findOwnedFileForLifecycle,
+  findOwnedFileVersion,
+  loadFileLifecycleMetadata,
+} from "@/modules/files/repositories/lifecycle";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
@@ -48,45 +55,32 @@ export async function replaceFileCommand(
   const client = storage.getClient();
   if (!client) throw errors.storageNotConfigured();
 
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
+  const row = await findOwnedFileForLifecycle(userId, fileId);
   if (!row) throw errors.fileNotFound();
   if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
     throw errors.validationError("File size is out of bounds.");
   }
 
-  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
   const name = input.name.trim().slice(0, 200) || row.name;
+  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
   const path = storage.pathFor(userId, row.id, nextVersion, name);
   const uploaded = await storage.upload(client, path, input.buffer, input.mimeType);
   if (!uploaded.ok) {
     throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
   }
 
-  let updated;
+  let result;
   try {
-    updated = await db.$transaction(async (tx) => {
-      // Compare-and-swap on the current path: only one concurrent operation
-      // can advance this file from the version it originally read.
-      const claimed = await tx.gaiaFile.updateMany({
-        where: { id: row.id, userId, storagePath: row.storagePath },
-        data: {
-          name,
-          mimeType: input.mimeType.slice(0, 200),
-          size: input.size,
-          storagePath: path,
-          ocrText: "",
-        },
-      });
-      if (claimed.count !== 1) throw errors.versionConflict();
-
-      await tx.fileVersion.create({
-        data: { fileId: row.id, version: nextVersion, storagePath: path, size: input.size },
-      });
-      return tx.gaiaFile.findFirstOrThrow({ where: { id: row.id, userId } });
+    result = await createReplacementFileVersion({
+      userId,
+      fileId: row.id,
+      currentStoragePath: row.storagePath,
+      name,
+      mimeType: input.mimeType.slice(0, 200),
+      size: input.size,
+      storagePath: path,
     });
+    if (!result) throw errors.versionConflict();
   } catch (error) {
     // The upload is provisional until the metadata transaction commits.
     try {
@@ -97,18 +91,12 @@ export async function replaceFileCommand(
     }
     throw error;
   }
+  const updated = result.file;
+  const committedVersion = result.nextVersion;
 
-  const [folder, noteCount] = await Promise.all([
-    updated.folderId
-      ? db.noteFolder.findFirst({
-          where: { userId, id: updated.folderId },
-          select: { name: true },
-        })
-      : Promise.resolve(null),
-    db.noteFile.count({ where: { fileId: row.id } }),
-  ]);
+  const { folder, noteCount } = await loadFileLifecycleMetadata(userId, row.id, updated.folderId);
   return {
-    file: fileToDTO(updated, folder?.name ?? null, nextVersion, noteCount),
+    file: fileToDTO(updated, folder?.name ?? null, committedVersion, noteCount),
   };
 }
 
@@ -122,51 +110,26 @@ export async function restoreFileVersionCommand(
   version: number,
   errors: RestoreErrors,
 ): Promise<{ file: GaiaFileDTO }> {
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
+  const row = await findOwnedFileForLifecycle(userId, fileId);
   if (!row) throw errors.fileNotFound();
 
-  const target = await db.fileVersion.findFirst({
-    where: { fileId: row.id, version },
-  });
+  const target = await findOwnedFileVersion(userId, row.id, version);
   if (!target) throw errors.versionNotFound();
   if (target.storagePath === row.storagePath) {
     throw errors.validationError("This version is already the current one.");
   }
 
-  const nextVersion = (row.versions[0]?.version ?? 0) + 1;
-  const updated = await db.$transaction(async (tx) => {
-    const claimed = await tx.gaiaFile.updateMany({
-      where: { id: row.id, userId, storagePath: row.storagePath },
-      data: {
-        storagePath: target.storagePath,
-        size: target.size,
-        ocrText: "",
-      },
-    });
-    if (claimed.count !== 1) throw errors.versionConflict();
-
-    await tx.fileVersion.create({
-      data: {
-        fileId: row.id,
-        version: nextVersion,
-        storagePath: target.storagePath,
-        size: target.size,
-      },
-    });
-    return tx.gaiaFile.findFirstOrThrow({ where: { id: row.id, userId } });
+  const result = await createRestoredFileVersion({
+    userId,
+    fileId: row.id,
+    currentStoragePath: row.storagePath,
+    targetStoragePath: target.storagePath,
+    targetSize: target.size,
   });
-  const [folder, noteCount] = await Promise.all([
-    updated.folderId
-      ? db.noteFolder.findFirst({
-          where: { userId, id: updated.folderId },
-          select: { name: true },
-        })
-      : Promise.resolve(null),
-    db.noteFile.count({ where: { fileId: row.id } }),
-  ]);
+  if (!result) throw errors.versionConflict();
+  const updated = result.file;
+  const nextVersion = result.nextVersion;
+  const { folder, noteCount } = await loadFileLifecycleMetadata(userId, row.id, updated.folderId);
   return {
     file: fileToDTO(updated, folder?.name ?? null, nextVersion, noteCount),
   };
@@ -194,42 +157,15 @@ export async function deleteFileCommand(
   const client = storage.getClient();
   if (!client) throw errors.storageNotConfigured();
 
-  try {
-    await db.$transaction(async (tx) => {
-      // Lock the parent row while collecting paths and removing binaries.
-      // Replace/restore use conditional updates on this same row, so they
-      // cannot commit a new version midway through deletion.
-      const locked = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM gaia_files
-        WHERE id = ${fileId} AND user_id = ${userId}
-        FOR UPDATE
-      `;
-      if (locked.length === 0) throw errors.fileNotFound();
-
-      const row = await tx.gaiaFile.findFirst({
-        where: { userId, id: fileId },
-        include: { versions: { select: { storagePath: true } } },
-      });
-      if (!row) throw errors.fileNotFound();
-
-      const paths = [...new Set([row.storagePath, ...row.versions.map((version) => version.storagePath)])];
-      try {
-        await storage.remove(client, paths);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Storage removal failed.";
-        throw errors.storageRemovalFailed(message);
-      }
-
-      await tx.gaiaFile.delete({ where: { id: row.id } });
-    }, {
-      maxWait: 5_000,
-      // Storage is an external service; allow time for large version histories
-      // while keeping the row lock bounded.
-      timeout: 30_000,
-    });
-  } catch (error) {
-    throw error;
-  }
+  const deleted = await deleteFileAndVersions(userId, fileId, async (paths) => {
+    try {
+      await storage.remove(client, paths);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Storage removal failed.";
+      throw errors.storageRemovalFailed(message);
+    }
+  });
+  if (!deleted) throw errors.fileNotFound();
 
   return { ok: true };
 }
