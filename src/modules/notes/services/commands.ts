@@ -6,7 +6,7 @@ import {
 import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
 import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
 import type { Note } from "@prisma/client";
-import type { z } from "zod";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type NoteTemplate = { id: string; icon: string; blocks: GaiaBlock[] };
 
@@ -25,23 +25,6 @@ type NoteCommandDependencies = {
   noteResponse: (userId: string, note: Note) => Promise<GaiaNoteResponse>;
 };
 
-function parseOrThrow<T>(
-  schema: { safeParse: (input: unknown) => { success: true; data: T } | { success: false; error: z.ZodError } },
-  input: unknown,
-  validationError: NoteCommandDependencies["validationError"],
-): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 /** Create a note while keeping template, folder and block rules at the module boundary. */
 export async function createNoteCommand(
