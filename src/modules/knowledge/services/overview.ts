@@ -1,6 +1,9 @@
 import type { GaiaNoteRow, GaiaTemplateDTO } from "@/modules/notes/types";
 import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
-import type { NoteFolder, NoteTag } from "@prisma/client";
+import type {
+  NoteFolderMappingRecord,
+  NoteTagMappingRecord,
+} from "@/modules/notes/types/list";
 import type {
   GaiaActivityWeek,
   GaiaFolderDTO,
@@ -9,11 +12,11 @@ import type {
 } from "@/modules/knowledge/types";
 
 type OverviewDependencies = {
-  loadFolders: (userId: string) => Promise<NoteFolder[]>;
-  loadTags: (userId: string) => Promise<NoteTag[]>;
+  loadFolders: (userId: string) => Promise<NoteFolderMappingRecord[]>;
+  loadTags: (userId: string) => Promise<NoteTagMappingRecord[]>;
   loadNotes: (userId: string) => Promise<NoteListRow[]>;
   loadBlocksFor: (noteIds: string[]) => Promise<Map<string, string>>;
-  toRow: (note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
+  toRow: (note: NoteRowInput, folders: NoteFolderMappingRecord[], tags: NoteTagMappingRecord[]) => GaiaNoteRow;
   parseTagIds: (raw: string | null | undefined) => string[];
   listTemplates: (userId: string) => Promise<{ templates: GaiaTemplateDTO[] }>;
 };
