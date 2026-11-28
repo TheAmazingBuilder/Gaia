@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { isMasteryLevel, MASTERY_VALUE } from "@/lib/gaia/spaced-repetition";
 import type {
   GaiaMemoryHeatmapDay,
