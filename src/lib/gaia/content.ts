@@ -21,7 +21,6 @@
  * - Commentaires par bloc (`comments`) et métadonnées de tableau
  *   (`tableMeta` : tri, types de colonnes).
  */
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 export { parseInlineSegments, stripInlineMarkers } from "./inline";
@@ -206,20 +205,7 @@ export type GaiaBlock = {
   fileId?: string;
 };
 
-/** Nouvel id de bloc : `nb-` + 24 caractères hex. */
-export function newBlockId(): string {
-  return `nb-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
-}
-
-/** Nouvel id de groupe synchronisé : `sy-` + 16 caractères hex. */
-export function newSyncId(): string {
-  return `sy-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-}
-
-/** Nouvel id de commentaire : `cm-` + 16 caractères hex. */
-export function newCommentId(): string {
-  return `cm-${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-}
+export { newBlockId, newSyncId, newCommentId } from "./block-ids";
 
 // ── Formatage riche inline ─────────────────────────────────────────────────
 // La syntaxe et le parser vivent dans ./inline.ts (client-safe, sans
