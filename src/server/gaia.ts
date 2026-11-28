@@ -109,6 +109,7 @@ import {
 } from "@/modules/knowledge/services/relations";
 import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
+import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
 import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
@@ -1604,43 +1605,11 @@ export async function getLinkSuggestions(
   userId: string,
   noteId: string,
 ): Promise<{ suggestions: GaiaLinkSuggestion[] }> {
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const [links, allNotes] = await Promise.all([
-    getNoteLinks(userId, noteId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-  const linkedIds = new Set([
-    noteId,
-    ...links.outgoing.map((o) => o.id),
-    ...links.backlinks.map((b) => b.id),
-  ]);
-  const sourceBlocks = parseJsonBlocks(note.blocks);
-  const scored = suggestLinks(
-    {
-      title: note.title,
-      text: textOfBlocks(sourceBlocks),
-      tagIds: parseJsonStringArray(note.tagIds),
-    },
-    allNotes
-      .filter((n) => !linkedIds.has(n.id))
-      .map((n) => ({
-        id: n.id,
-        title: n.title,
-        text: textOfBlocks(parseJsonBlocks(n.blocks)),
-        tagIds: parseJsonStringArray(n.tagIds),
-      })),
-    8,
-  );
-  const titles = new Map(allNotes.map((n) => [n.id, n.title]));
-  return {
-    suggestions: scored.map((s) => ({
-      id: s.id,
-      title: titles.get(s.id) === "" ? "Untitled note" : (titles.get(s.id) ?? "Untitled note"),
-      score: s.score,
-      sharedWords: s.sharedWords,
-    })),
-  };
+  return getLinkSuggestionsQuery(userId, noteId, {
+    findActiveNote,
+    getNoteLinks,
+    noteNotFound: NOTE_NOT_FOUND,
+  });
 }
 
 // ── K15 — Notes orphelines ─────────────────────────────────────────────
