@@ -1,4 +1,4 @@
-import { db } from "@/shared/database/client";
+import { loadOrphanDetectionNotes } from "@/modules/knowledge/repositories/orphans";
 import { flattenBlocks, parseJsonBlocks, parseJsonStringArray } from "@/lib/gaia/content";
 import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
 import type { GaiaNoteRow } from "@/modules/notes/types";
@@ -18,7 +18,7 @@ export async function getOrphanNotesQuery(
     deps.loadFolders(userId),
     deps.loadTags(userId),
     deps.loadRelations(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
+    loadOrphanDetectionNotes(userId),
   ]);
 
   const outgoing = new Map<string, Set<string>>();
