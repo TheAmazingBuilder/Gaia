@@ -206,6 +206,7 @@ import {
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import { normalizeProperties } from "@/modules/notes/normalization";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
+import { folderInputSchema, tagInputSchema } from "@/modules/knowledge/schemas";
 import { assertSafeImageSources } from "@/modules/notes/content-validation";
 import { createEmptyParagraphBlock } from "@/modules/notes/services/block-copy";
 import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
@@ -298,16 +299,7 @@ export function gaiaErrorResponse(error: unknown): NextResponse | null {
 
 /* ── Module 2 — Knowledge Management System (K01–K17) ─────────────── */
 
-const folderInputSchema = z.object({
-  name: z.string().min(1).max(80),
-  parentId: z.string().nullable().optional(),
-});
 
-const tagInputSchema = z.object({
-  name: z.string().max(80),
-  parentId: z.string().nullable().optional(),
-  relatedIds: z.array(z.string()).max(24).optional(),
-});
 
 type SafeParser<T> = {
   safeParse: (
