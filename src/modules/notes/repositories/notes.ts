@@ -1,4 +1,4 @@
-import type { Note, Prisma } from "@prisma/client";
+import type { Note, NoteTag, Prisma } from "@prisma/client";
 import { db } from "@/shared/database/client";
 import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
 
