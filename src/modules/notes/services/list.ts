@@ -85,6 +85,14 @@ export async function loadOverviewNotesQuery(userId: string): Promise<NoteListRo
   return db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT });
 }
 
+/** Charge les notes actives avec leur contenu pour la recherche textuelle. */
+export async function loadSearchNotesQuery(userId: string): Promise<NoteRowInput[]> {
+  return db.note.findMany({
+    where: { userId, deletedAt: null },
+    select: { ...NOTE_LIST_SELECT, blocks: true },
+  });
+}
+
 export async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
   if (noteIds.length === 0) return new Map();
   const rows = await db.note.findMany({
