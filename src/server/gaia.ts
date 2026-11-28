@@ -187,12 +187,8 @@ import {
 } from "@/modules/notes/services/review";
 import {
   excerptOf,
-  flattenBlocks,
   gaiaBlocksInputSchema,
   gaiaRefKindSchema,
-  isSafeEmbedUrl,
-  isSafeImageSrc,
-  newBlockId,
   normalizeBlocks,
   parseJsonBlocks,
   parseJsonStringArray,
@@ -211,6 +207,8 @@ import {
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import { normalizeProperties } from "@/modules/notes/normalization";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
+import { assertSafeImageSources } from "@/modules/notes/content-validation";
+import { createEmptyParagraphBlock } from "@/modules/notes/services/block-copy";
 import { cloneBlocksWithNewIds } from "@/modules/notes/services/block-copy";
 import {
   isDescendantOf,
@@ -338,19 +336,7 @@ function parseOrThrow<T>(schema: SafeParser<T>, input: unknown): T {
  * Rejette les blocs image/dessin dont le src utilise un protocole non
  * autorisé, et les embeds dont l'URL n'est pas https. Récursif (Module 1).
  */
-function assertSafeImageSources(blocks: GaiaBlock[]): void {
-  for (const block of flattenBlocks(blocks)) {
-    if (
-      (block.type === "image" || block.type === "drawing") &&
-      !isSafeImageSrc(block.src)
-    ) {
-      throw validationError("Image source not allowed.");
-    }
-    if (block.type === "embed" && !isSafeEmbedUrl(block.text)) {
-      throw validationError("Embed URL must use https.");
-    }
-  }
-}
+
 
 /* ── Types de réponse ────────────────────────────────────────────────── */
 
@@ -390,9 +376,7 @@ function safeJsonParse(raw: string | null | undefined): unknown {
 
 
 
-function emptyParagraphBlock(): GaiaBlock {
-  return { id: newBlockId(), type: "paragraph", text: "" };
-}
+
 
 
 
