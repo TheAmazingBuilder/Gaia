@@ -1,13 +1,15 @@
 import {
-  deleteNoteFileAssociation,
   findOwnedFile,
-  loadFilesForNote,
-  loadNotesForFile,
-  upsertNoteFileAssociation,
+  loadFilesByIds,
 } from "@/modules/files/repositories/associations";
 import {
+  attachFileToNote,
+  countNotesAttachedToFiles,
+  detachFileFromNote,
   findNoteForFileAssociation,
+  listFileIdsAttachedToNote,
   listFoldersForFiles,
+  listNotesAttachedToFile,
 } from "@/modules/notes/contracts/files";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
@@ -30,8 +32,7 @@ export async function attachFileToNoteCommand(
   ]);
   if (!note) throw errors.noteNotFound();
   if (!file) throw errors.fileNotFound();
-
-  await upsertNoteFileAssociation(file.id, note.id);
+  await attachFileToNote(file.id, note.id);
   return { ok: true };
 }
 
@@ -44,7 +45,7 @@ export async function detachFileFromNoteCommand(
 ): Promise<{ ok: true }> {
   const note = await findNoteForFileAssociation(userId, noteId);
   if (!note) throw noteNotFound();
-  await deleteNoteFileAssociation(fileId, note.id);
+  await detachFileFromNote(fileId, note.id);
   return { ok: true };
 }
 
@@ -57,18 +58,22 @@ export async function listNoteFilesQuery(
   const note = await findNoteForFileAssociation(userId, noteId);
   if (!note) throw noteNotFound();
 
-  const [links, folders] = await Promise.all([
-    loadFilesForNote(userId, note.id),
+  const [fileIds, folders] = await Promise.all([
+    listFileIdsAttachedToNote(userId, note.id),
     listFoldersForFiles(userId),
+  ]);
+  const [files, noteCounts] = await Promise.all([
+    loadFilesByIds(userId, fileIds),
+    countNotesAttachedToFiles(fileIds),
   ]);
   const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]));
   return {
-    files: links.map(({ file }) =>
+    files: files.map((file) =>
       fileToDTO(
         file,
         file.folderId ? (folderNames.get(file.folderId) ?? null) : null,
         file.versions.length,
-        file.notes.length,
+        noteCounts.get(file.id) ?? 0,
       ),
     ),
   };
@@ -82,10 +87,9 @@ export async function listFileNotesQuery(
 ): Promise<{ notes: Array<{ id: string; title: string; updatedAt: string }> }> {
   const file = await findOwnedFile(userId, fileId);
   if (!file) throw fileNotFound();
-
-  const links = await loadNotesForFile(userId, file.id);
+  const notes = await listNotesAttachedToFile(userId, file.id);
   return {
-    notes: links.map(({ note }) => ({
+    notes: notes.map((note) => ({
       id: note.id,
       title: note.title,
       updatedAt: note.updatedAt.toISOString(),
