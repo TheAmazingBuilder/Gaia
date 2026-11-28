@@ -6,15 +6,7 @@ import {
 } from "@/modules/knowledge/repositories/relations";
 import type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
 import type { Note, NoteRelation } from "@prisma/client";
-import type { z } from "zod";
-
-type SafeParser<T> = {
-  safeParse: (
-    input: unknown,
-  ) =>
-    | { success: true; data: T }
-    | { success: false; error: z.ZodError };
-};
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type RelationDependencies = {
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
@@ -22,24 +14,6 @@ type RelationDependencies = {
   conflictError: (code: string, message: string) => Error;
   relationNotFound: () => Error;
 };
-
-function parseOrThrow<T>(
-  schema: SafeParser<T>,
-  input: unknown,
-  validationError: RelationDependencies["validationError"],
-): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 async function findActiveNote(userId: string, noteId: string): Promise<Note | null> {
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
