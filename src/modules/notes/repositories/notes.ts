@@ -47,6 +47,21 @@ export function findActiveNote(userId: string, noteId: string): Promise<Note | n
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
 }
 
+/** Find a smart collection owned by the requesting user. */
+export function findUserSmartCollection(userId: string, collectionId: string) {
+  return db.smartCollection.findFirst({ where: { userId, id: collectionId } });
+}
+
+/** Load active notes belonging to the requesting user for collection matching. */
+export function loadActiveNotesForCollection(userId: string): Promise<Note[]> {
+  return db.note.findMany({ where: { userId, deletedAt: null } });
+}
+
+/** Load the requesting user's notes for reference-block matching. */
+export function loadUserNotesForReference(userId: string): Promise<Note[]> {
+  return db.note.findMany({ where: { userId } });
+}
+
 /** Load note metadata for the Knowledge overview without exposing Prisma types. */
 export function loadOverviewNotesQuery(userId: string): Promise<NoteListRow[]> {
   return db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT });
