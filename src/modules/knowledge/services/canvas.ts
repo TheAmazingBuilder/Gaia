@@ -1,4 +1,11 @@
-import { db } from "@/shared/database/client";
+import {
+  createKnowledgeCanvas,
+  deleteKnowledgeCanvas,
+  findActiveKnowledgeCanvasNoteIds,
+  findUserKnowledgeCanvas,
+  listUserKnowledgeCanvases,
+  updateKnowledgeCanvas,
+} from "@/modules/knowledge/repositories/canvas";
 import {
   canvasInputSchema,
   canvasItemSchema,
@@ -14,7 +21,6 @@ type CanvasDependencies = {
   ) => Error;
   canvasNotFound: () => Error;
 };
-
 
 function safeJsonParse(raw: string | null | undefined): unknown {
   if (!raw) return null;
@@ -46,10 +52,7 @@ function canvasToDTO(row: KnowledgeCanvas): GaiaCanvasDTO {
 export async function listCanvasesQuery(
   userId: string,
 ): Promise<{ canvases: GaiaCanvasDTO[] }> {
-  const rows = await db.knowledgeCanvas.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
+  const rows = await listUserKnowledgeCanvases(userId);
   return { canvases: rows.map(canvasToDTO) };
 }
 
@@ -58,9 +61,7 @@ export async function getCanvasQuery(
   canvasId: string,
   deps: Pick<CanvasDependencies, "canvasNotFound">,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  const row = await db.knowledgeCanvas.findFirst({
-    where: { userId, id: canvasId },
-  });
+  const row = await findUserKnowledgeCanvas(userId, canvasId);
   if (!row) throw deps.canvasNotFound();
   return { canvas: canvasToDTO(row) };
 }
@@ -71,13 +72,11 @@ export async function createCanvasCommand(
   deps: CanvasDependencies,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
   const parsed = parseOrThrow(canvasInputSchema, input, deps.validationError);
-  const row = await db.knowledgeCanvas.create({
-    data: {
-      userId,
-      name: parsed.name.trim(),
-      items: JSON.stringify(parsed.items ?? []),
-    },
-  });
+  const row = await createKnowledgeCanvas(
+    userId,
+    parsed.name.trim(),
+    JSON.stringify(parsed.items ?? []),
+  );
   return { canvas: canvasToDTO(row) };
 }
 
@@ -88,30 +87,23 @@ export async function updateCanvasCommand(
   deps: CanvasDependencies,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
   const parsed = parseOrThrow(canvasInputSchema, input, deps.validationError);
-  const row = await db.knowledgeCanvas.findFirst({
-    where: { userId, id: canvasId },
-  });
+  const row = await findUserKnowledgeCanvas(userId, canvasId);
   if (!row) throw deps.canvasNotFound();
 
   // Les cartes ne peuvent référencer que des notes existantes et actives.
   let items = parsed.items;
   if (items !== undefined) {
     const ids = [...new Set(items.map((item) => item.noteId))];
-    const existing = await db.note.findMany({
-      where: { userId, id: { in: ids }, deletedAt: null },
-      select: { id: true },
-    });
+    const existing = await findActiveKnowledgeCanvasNoteIds(userId, ids);
     const known = new Set(existing.map((note) => note.id));
     items = items.filter((item) => known.has(item.noteId));
   }
 
-  const updated = await db.knowledgeCanvas.update({
-    where: { id: row.id },
-    data: {
-      name: parsed.name.trim(),
-      ...(items !== undefined ? { items: JSON.stringify(items) } : {}),
-    },
-  });
+  const updated = await updateKnowledgeCanvas(
+    row.id,
+    parsed.name.trim(),
+    items !== undefined ? JSON.stringify(items) : undefined,
+  );
   return { canvas: canvasToDTO(updated) };
 }
 
@@ -120,10 +112,8 @@ export async function deleteCanvasCommand(
   canvasId: string,
   deps: Pick<CanvasDependencies, "canvasNotFound">,
 ): Promise<{ ok: true }> {
-  const row = await db.knowledgeCanvas.findFirst({
-    where: { userId, id: canvasId },
-  });
+  const row = await findUserKnowledgeCanvas(userId, canvasId);
   if (!row) throw deps.canvasNotFound();
-  await db.knowledgeCanvas.delete({ where: { id: row.id } });
+  await deleteKnowledgeCanvas(row.id);
   return { ok: true };
 }
