@@ -11,6 +11,95 @@ import type {
 import type { z } from "zod";
 
 type FileTextInput = z.infer<typeof fileTextInputSchema>;
+
+import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+type CreateFileInput = {
+  name: string;
+  mimeType: string;
+  size: number;
+  folderId?: string | null;
+  buffer: Buffer;
+};
+
+type CreateFileErrors = {
+  fileNotFound: () => Error;
+  folderNotFound: () => Error;
+  validationError: (message: string) => Error;
+  storageNotConfigured: () => Error;
+  storageUploadFailed: (message: string) => Error;
+};
+
+type CreateFileStorage = {
+  isConfigured: () => boolean;
+  getClient: () => SupabaseClient | null;
+  pathFor: (userId: string, fileId: string, version: number, name: string) => string;
+  upload: (
+    client: SupabaseClient,
+    path: string,
+    buffer: Buffer,
+    mimeType: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  remove: (client: SupabaseClient, paths: string[]) => Promise<void>;
+};
+
+/** F01/F02 — upload a binary, then atomically create its metadata and first version. */
+export async function createFileCommand(
+  userId: string,
+  input: CreateFileInput,
+  errors: CreateFileErrors,
+  storage: CreateFileStorage,
+): Promise<{ file: GaiaFileDTO }> {
+  if (!storage.isConfigured()) throw errors.storageNotConfigured();
+  const client = storage.getClient();
+  if (!client) throw errors.storageNotConfigured();
+
+  const name = input.name.trim().slice(0, 200);
+  if (name === "") throw errors.validationError("File name is required.");
+  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
+    throw errors.validationError("File size is out of bounds.");
+  }
+
+  let folderId: string | null = null;
+  if (input.folderId) {
+    const folder = await db.noteFolder.findFirst({
+      where: { userId, id: input.folderId },
+      select: { id: true, name: true },
+    });
+    if (!folder) throw errors.folderNotFound();
+    folderId = folder.id;
+  }
+
+  const id = `cm${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const path = storage.pathFor(userId, id, 1, name);
+  const uploaded = await storage.upload(client, path, input.buffer, input.mimeType);
+  if (!uploaded.ok) {
+    throw errors.storageUploadFailed(uploaded.error ?? "Upload failed.");
+  }
+
+  try {
+    const row = await db.gaiaFile.create({
+      data: {
+        id,
+        userId,
+        name,
+        mimeType: input.mimeType.slice(0, 200),
+        size: input.size,
+        storagePath: path,
+        folderId,
+        versions: { create: { version: 1, storagePath: path, size: input.size } },
+      },
+    });
+    return { file: fileToDTO(row, folderId ? (await db.noteFolder.findFirst({
+      where: { userId, id: folderId },
+      select: { name: true },
+    }))?.name ?? null : null, 1, 0) };
+  } catch (error) {
+    await storage.remove(client, [path]);
+    throw error;
+  }
+}
 type FileAnnotationInput = z.infer<typeof fileAnnotationInputSchema>;
 
 type FileCommandErrors = {
