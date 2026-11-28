@@ -1,7 +1,7 @@
 import type { GaiaNoteRow } from "@/modules/notes/types";
 import type { NoteFolder, NoteTag } from "@prisma/client";
 import type { GaiaBlock } from "@/lib/gaia/content";
-import type { NoteRowInput } from "@/modules/notes/services/list";
+import type { NoteRowInput } from "@/modules/notes/types/list";
 
 type SearchNotesDependencies = {
   loadFolders: (userId: string) => Promise<NoteFolder[]>;
