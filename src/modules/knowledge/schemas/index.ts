@@ -22,3 +22,16 @@ export const collectionInputSchema = z.object({
   icon: z.string().max(16).optional(),
   criteria: gaiaCollectionCriteriaSchema.optional(),
 });
+
+export const canvasItemSchema = z.object({
+  noteId: z.string().min(1),
+  x: z.number().min(-100).max(5000),
+  y: z.number().min(-100).max(5000),
+  w: z.number().min(120).max(1200).optional(),
+  h: z.number().min(80).max(1200).optional(),
+});
+
+export const canvasInputSchema = z.object({
+  name: z.string().min(1).max(120),
+  items: z.array(canvasItemSchema).max(200).optional(),
+});
