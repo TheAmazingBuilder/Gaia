@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Gaïa — client Supabase Storage (Module 3), côté serveur uniquement.
  *
