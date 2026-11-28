@@ -167,6 +167,7 @@ import {
   updateTagCommand,
 } from "@/modules/notes/services/tags";
 import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT, type NoteRowInput } from "@/modules/notes/services/list";
+import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
 import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
@@ -1332,33 +1333,19 @@ export async function searchNotes(
   userId: string,
   q: string,
 ): Promise<{ results: (GaiaNoteRow & { snippet: string })[]; total: number }> {
-  const query = q.trim().toLowerCase();
-  if (query === "") return { results: [], total: 0 };
-  const [folders, tags, notes] = await Promise.all([
-    loadFolders(userId),
-    loadTags(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-  const results: (GaiaNoteRow & { snippet: string })[] = [];
-  for (const note of notes) {
-    const blocks = parseJsonBlocks(note.blocks);
-    const tagIds = parseJsonStringArray(note.tagIds);
-    const titleHit = note.title.toLowerCase().includes(query);
-    const fullText = textOfBlocks(blocks);
-    const textHit = fullText.toLowerCase().includes(query);
-    const tagHit = tagNamesOf(tagIds, tags).some((name) =>
-      name.toLowerCase().includes(query),
-    );
-    if (!titleHit && !textHit && !tagHit) continue;
-    const row = toRow(note, folders, tags);
-    results.push({
-      ...row,
-      snippet: textHit ? searchSnippet(blocks, query) : excerptOf(blocks),
-    });
-  }
-  results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const sliced = results.slice(0, 30);
-  return { results: sliced, total: sliced.length };
+  return searchNotesQuery(userId, q, {
+    loadFolders,
+    loadTags,
+    loadNotes: (ownerId) =>
+      db.note.findMany({ where: { userId: ownerId, deletedAt: null } }),
+    parseBlocks: parseJsonBlocks,
+    parseTagIds: parseJsonStringArray,
+    textOfBlocks,
+    searchSnippet,
+    excerptOf,
+    tagNamesOf,
+    toRow,
+  });
 }
 
 /* ── Refs ────────────────────────────────────────────────────────────── */
