@@ -427,23 +427,6 @@ function safeJsonParse(raw: string | null | undefined): unknown {
   }
 }
 
-/** Parses the Note.properties JSON; anything invalid becomes []. */
-function parseJsonProperties(raw: string | null | undefined): GaiaNoteProperty[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const out: GaiaNoteProperty[] = [];
-    for (const item of parsed) {
-      const checked = gaiaNotePropertySchema.safeParse(item);
-      if (checked.success) out.push(checked.data);
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
 /** Normalizes properties: trims keys, drops empties, last value wins per key. */
 function normalizeProperties(input: GaiaNoteProperty[]): GaiaNoteProperty[] {
   const byKey = new Map<string, GaiaNoteProperty>();
