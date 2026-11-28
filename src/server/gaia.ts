@@ -524,7 +524,7 @@ export async function updateNote(
     parseStoredBlocks: parseJsonBlocks,
     assertSafeImageSources,
     normalizeProperties,
-    createNoteSnapshotIfNeeded,
+    maybeSnapshotVersion: createNoteSnapshotIfNeeded,
     noteResponse: async (ownerId, note) => {
       const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
       return noteResponse(ownerId, note, folders, tags);
@@ -694,7 +694,7 @@ export async function restoreVersion(
   return restoreVersionCommand(userId, noteId, versionId, {
     noteNotFound: NOTE_NOT_FOUND,
     versionNotFound: VERSION_NOT_FOUND,
-    createNoteSnapshotIfNeeded,
+    maybeSnapshotVersion: createNoteSnapshotIfNeeded,
     cloneBlocksWithNewIds,
     noteResponse: async (ownerId, note) => {
       const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
