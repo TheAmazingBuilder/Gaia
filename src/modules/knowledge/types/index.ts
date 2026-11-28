@@ -1,4 +1,5 @@
-
+import type { NoteFolder, NoteTag } from "@prisma/client";
+import type { GaiaTemplateDTO, GaiaNoteRow } from "@/modules/notes/types";
 
 export type GaiaNoteRelationDTO = {
   id: string;
@@ -80,9 +81,6 @@ export type GaiaInboxItemDTO = {
   noteId: string | null;
   createdAt: string;
 };
-
-import type { NoteFolder, NoteTag } from "@prisma/client";
-import type { GaiaTemplateDTO, GaiaNoteRow } from "@/modules/notes/types";
 
 export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
