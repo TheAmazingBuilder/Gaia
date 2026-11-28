@@ -21,8 +21,6 @@
  * - Commentaires par bloc (`comments`) et métadonnées de tableau
  *   (`tableMeta` : tri, types de colonnes).
  */
-import { z } from "zod";
-
 export { parseInlineSegments, stripInlineMarkers } from "./inline";
 export type { InlineSegment } from "./inline";
 
@@ -245,16 +243,6 @@ export function parseJsonBlocks(stored: string | null | undefined): GaiaBlock[] 
 export { parseJsonStringArray } from "./json";
 
 export {
-  textOfBlocks,
-  wordCountOf,
-  countWords,
-  countChars,
-  readingTimeMinutes,
-  countOpenTodos,
-  excerptOf,
-  searchSnippet,
-} from "./text";
-import {
   textOfBlocks,
   wordCountOf,
   countWords,
