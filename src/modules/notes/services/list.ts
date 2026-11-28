@@ -17,10 +17,10 @@ import {
 } from "@/lib/gaia/knowledge";
 import { isMasteryLevel, isTimePeriod, periodOf, type TimePeriod } from "@/lib/gaia/spaced-repetition";
 import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
-import { NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/types/list";
+import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
+import { NOTE_LIST_SELECT, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 export { NOTE_LIST_SELECT };
 export type { NoteListRow, NoteRowInput };
-import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 
 
 
