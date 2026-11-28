@@ -11,13 +11,6 @@ type NewFileRecord = {
 };
 
 /** Persistence operations for file commands. */
-export async function findOwnedFileFolder(userId: string, folderId: string) {
-  return db.noteFolder.findFirst({
-    where: { userId, id: folderId },
-    select: { id: true, name: true },
-  });
-}
-
 export async function createFileWithFirstVersion(data: NewFileRecord) {
   return db.gaiaFile.create({
     data: {
@@ -40,14 +33,6 @@ export async function updateFileRecord(
 
 export async function saveFileOcrText(fileId: string, text: string) {
   return db.gaiaFile.update({ where: { id: fileId }, data: { ocrText: text } });
-}
-
-export async function loadFileFolderName(userId: string, folderId: string | null) {
-  if (!folderId) return null;
-  return db.noteFolder.findFirst({
-    where: { userId, id: folderId },
-    select: { name: true },
-  });
 }
 
 export async function countFileVersions(fileId: string) {
