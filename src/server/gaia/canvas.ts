@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   createCanvasCommand,
   deleteCanvasCommand,
@@ -5,42 +7,31 @@ import {
   listCanvasesQuery,
   updateCanvasCommand,
 } from "@/modules/knowledge/services/canvas";
+import { notFound, validationError } from "@/shared/errors/gaia-error";
 
 type CanvasDependencies = Parameters<typeof createCanvasCommand>[2];
+
+const canvasDependencies: CanvasDependencies = {
+  validationError,
+  canvasNotFound: () => notFound("CANVAS_NOT_FOUND", "Canvas not found."),
+};
 
 export function listCanvases(userId: string) {
   return listCanvasesQuery(userId);
 }
 
-export function getCanvas(
-  userId: string,
-  canvasId: string,
-  deps: Pick<CanvasDependencies, "canvasNotFound">,
-) {
-  return getCanvasQuery(userId, canvasId, deps);
+export function getCanvas(userId: string, canvasId: string) {
+  return getCanvasQuery(userId, canvasId, canvasDependencies);
 }
 
-export function createCanvas(
-  userId: string,
-  input: unknown,
-  deps: CanvasDependencies,
-) {
-  return createCanvasCommand(userId, input, deps);
+export function createCanvas(userId: string, input: unknown) {
+  return createCanvasCommand(userId, input, canvasDependencies);
 }
 
-export function updateCanvas(
-  userId: string,
-  canvasId: string,
-  input: unknown,
-  deps: CanvasDependencies,
-) {
-  return updateCanvasCommand(userId, canvasId, input, deps);
+export function updateCanvas(userId: string, canvasId: string, input: unknown) {
+  return updateCanvasCommand(userId, canvasId, input, canvasDependencies);
 }
 
-export function deleteCanvas(
-  userId: string,
-  canvasId: string,
-  deps: Pick<CanvasDependencies, "canvasNotFound">,
-) {
-  return deleteCanvasCommand(userId, canvasId, deps);
+export function deleteCanvas(userId: string, canvasId: string) {
+  return deleteCanvasCommand(userId, canvasId, canvasDependencies);
 }
