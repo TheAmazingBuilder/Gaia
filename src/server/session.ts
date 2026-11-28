@@ -11,7 +11,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import type { SessionPayload } from "@/lib/auth/types";
 
 export const SESSION_COOKIE = "gaia_session";
