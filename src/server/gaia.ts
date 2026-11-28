@@ -20,12 +20,12 @@ import {
   updateCollection as updateCollectionAdapter,
 } from "@/server/gaia/collections";
 import {
-  listCanvasesQuery,
-  getCanvasQuery,
-  createCanvasCommand,
-  updateCanvasCommand,
-  deleteCanvasCommand,
-} from "@/modules/knowledge/services/canvas";
+  createCanvas as createCanvasAdapter,
+  deleteCanvas as deleteCanvasAdapter,
+  getCanvas as getCanvasAdapter,
+  listCanvases as listCanvasesAdapter,
+  updateCanvas as updateCanvasAdapter,
+} from "@/server/gaia/canvas";
 import {
   listInboxQuery,
   createInboxItemCommand,
@@ -532,21 +532,21 @@ const canvasDependencies = () => ({
 export async function listCanvases(
   userId: string,
 ): Promise<{ canvases: GaiaCanvasDTO[] }> {
-  return listCanvasesQuery(userId);
+  return listCanvasesAdapter(userId);
 }
 
 export async function getCanvas(
   userId: string,
   canvasId: string,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  return getCanvasQuery(userId, canvasId, canvasDependencies());
+  return getCanvasAdapter(userId, canvasId, canvasDependencies());
 }
 
 export async function createCanvas(
   userId: string,
   input: unknown,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  return createCanvasCommand(userId, input, canvasDependencies());
+  return createCanvasAdapter(userId, input, canvasDependencies());
 }
 
 export async function updateCanvas(
@@ -554,14 +554,14 @@ export async function updateCanvas(
   canvasId: string,
   input: unknown,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  return updateCanvasCommand(userId, canvasId, input, canvasDependencies());
+  return updateCanvasAdapter(userId, canvasId, input, canvasDependencies());
 }
 
 export async function deleteCanvas(
   userId: string,
   canvasId: string,
 ): Promise<{ ok: true }> {
-  return deleteCanvasCommand(userId, canvasId, canvasDependencies());
+  return deleteCanvasAdapter(userId, canvasId, canvasDependencies());
 }
 
 // ── K12 — Inbox ───────────────────────────────────────────────────────
