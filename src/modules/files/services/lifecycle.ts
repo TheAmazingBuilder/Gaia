@@ -79,6 +79,7 @@ export async function replaceFileCommand(
       mimeType: input.mimeType.slice(0, 200),
       size: input.size,
       storagePath: path,
+      version: nextVersion,
     });
     if (!result) throw errors.versionConflict();
   } catch (error) {
@@ -125,6 +126,7 @@ export async function restoreFileVersionCommand(
     currentStoragePath: row.storagePath,
     targetStoragePath: target.storagePath,
     targetSize: target.size,
+    version: (row.versions[0]?.version ?? 0) + 1,
   });
   if (!result) throw errors.versionConflict();
   const updated = result.file;
