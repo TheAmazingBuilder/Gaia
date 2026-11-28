@@ -395,3 +395,27 @@ export function createUserNoteTemplate(
 ): Promise<NoteTemplate> {
   return db.noteTemplate.create({ data });
 }
+
+/** Load other active notes' blocks for synchronized-block propagation. */
+export function loadOtherActiveNotesForSync(
+  userId: string,
+  sourceNoteId: string,
+) {
+  return db.note.findMany({
+    where: { userId, deletedAt: null, id: { not: sourceNoteId } },
+    select: { id: true, blocks: true },
+  });
+}
+
+/** Persist updated serialized blocks for a previously owner-scoped note. */
+export function updateNoteBlocks(noteId: string, blocks: string): Promise<Note> {
+  return db.note.update({ where: { id: noteId }, data: { blocks } });
+}
+
+/** Persist a validated update for a previously owner-scoped active note. */
+export function updateNoteRecord(
+  noteId: string,
+  data: Prisma.NoteUpdateInput,
+): Promise<Note> {
+  return db.note.update({ where: { id: noteId }, data });
+}
