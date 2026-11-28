@@ -56,3 +56,19 @@ export type GaiaSmartCollectionDTO = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type GaiaCanvasItemDTO = {
+  noteId: string;
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+};
+
+export type GaiaCanvasDTO = {
+  id: string;
+  name: string;
+  items: GaiaCanvasItemDTO[];
+  createdAt: string;
+  updatedAt: string;
+};
