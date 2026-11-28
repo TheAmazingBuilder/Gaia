@@ -112,7 +112,7 @@ import {
   listNoteRelations as listNoteRelationsAdapter,
 } from "@/server/gaia/knowledge-navigation";
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
-import { parseJsonProperties, tagNamesOf, toDTO, toRow, noteResponse } from "@/modules/notes/mappers";
+import { parseJsonProperties, toDTO, toRow, noteResponse } from "@/modules/notes/mappers";
 import {
   listUserRelations as loadRelationsRaw,
   loadActiveNoteTitles as loadNoteTitlesRaw,
@@ -134,7 +134,7 @@ import {
   listTemplates,
 } from "@/server/gaia/templates";
 
-import { loadOverviewNotesQuery, loadBlocksFor, loadSearchNotesQuery } from "@/modules/notes/services/list";
+import { loadOverviewNotesQuery, loadBlocksFor } from "@/modules/notes/services/list";
 import {
   getNote as getNoteAdapter,
   listNotes as listNotesAdapter,
@@ -150,14 +150,11 @@ import {
   scheduleNote,
 } from "@/server/gaia/notes-review";
 import {
-  excerptOf,
   gaiaBlocksInputSchema,
   gaiaRefKindSchema,
   normalizeBlocks,
   parseJsonBlocks,
   parseJsonStringArray,
-  searchSnippet,
-  textOfBlocks,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
 export { listGaiaRefs } from "@/server/gaia/references";
@@ -225,13 +222,7 @@ export async function listNotes(
   userId: string,
   query: GaiaListQuery,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  return listNotesAdapter(userId, query, {
-    validationError,
-    collectionNotFound: () => notFound("COLLECTION_NOT_FOUND", "Collection not found."),
-    collectionCriteriaSchema: gaiaCollectionCriteriaSchema,
-    parseJsonProperties,
-    toRow,
-  });
+  return listNotesAdapter(userId, query);
 }
 
 
@@ -239,14 +230,7 @@ export async function getNote(
   userId: string,
   noteId: string,
 ): Promise<GaiaNoteResponse> {
-  return getNoteAdapter(userId, noteId, {
-    noteNotFound: NOTE_NOT_FOUND,
-    findActiveNote,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
+  return getNoteAdapter(userId, noteId);
 }
 
 /* ── Notes : écriture ────────────────────────────────────────────────── */
@@ -359,18 +343,7 @@ export async function searchNotes(
   userId: string,
   q: string,
 ): Promise<{ results: (GaiaNoteRow & { snippet: string })[]; total: number }> {
-  return searchNotesAdapter(userId, q, {
-    loadFolders,
-    loadTags,
-    loadNotes: loadSearchNotesQuery,
-    parseBlocks: parseJsonBlocks,
-    parseTagIds: parseJsonStringArray,
-    textOfBlocks,
-    searchSnippet,
-    excerptOf,
-    tagNamesOf,
-    toRow,
-  });
+  return searchNotesAdapter(userId, q);
 }
 
 /* ── Refs ────────────────────────────────────────────────────────────── */
