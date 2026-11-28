@@ -34,9 +34,9 @@ import {
   toggleInboxItem as toggleInboxItemAdapter,
 } from "@/server/gaia/inbox";
 import {
-  getOrCreateDailyNoteCommand,
-  getOrCreateWeeklyNoteCommand,
-} from "@/modules/knowledge/services/periodic-notes";
+  getOrCreateDailyNote as getOrCreateDailyNoteAdapter,
+  getOrCreateWeeklyNote as getOrCreateWeeklyNoteAdapter,
+} from "@/server/gaia/periodic-notes";
 import type {
   GaiaNoteProperty,
   GaiaNotePropertyType,
@@ -613,24 +613,21 @@ export async function convertInboxItem(
 
 // ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
 
+const periodicNotesDependencies = () => ({
+  loadFolders,
+  loadTags,
+  noteResponse,
+  createNote,
+});
+
 export async function getOrCreateDailyNote(
   userId: string,
 ): Promise<GaiaNoteResponse> {
-  return getOrCreateDailyNoteCommand(userId, {
-    loadFolders,
-    loadTags,
-    noteResponse,
-    createNote,
-  });
+  return getOrCreateDailyNoteAdapter(userId, periodicNotesDependencies());
 }
 
 export async function getOrCreateWeeklyNote(
   userId: string,
 ): Promise<GaiaNoteResponse> {
-  return getOrCreateWeeklyNoteCommand(userId, {
-    loadFolders,
-    loadTags,
-    noteResponse,
-    createNote,
-  });
+  return getOrCreateWeeklyNoteAdapter(userId, periodicNotesDependencies());
 }
