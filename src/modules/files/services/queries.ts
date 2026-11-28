@@ -1,5 +1,10 @@
-import type { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
+import {
+  findOwnedFileDetail,
+  findOwnedFileForDownload,
+  loadFileListData,
+  loadUserFileFolders,
+  loadUserFileStorageRows,
+} from "@/modules/files/repositories/queries";
 import { fileKindOf, GAIA_STORAGE_QUOTA_BYTES, type GaiaFileKind } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO, fileVersionToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO, GaiaFileDetailDTO, GaiaStorageUsageDTO } from "@/modules/files/types";
@@ -31,7 +36,7 @@ export async function downloadFileQuery(
   const client = storage.getClient();
   if (!client) throw errors.storageNotConfigured();
 
-  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  const row = await findOwnedFileForDownload(userId, fileId);
   if (!row) throw errors.fileNotFound();
 
   const result = await storage.download(client, row.storagePath);
@@ -53,85 +58,18 @@ export type ListFilesParams = {
   sort?: "newest" | "name" | "size";
 };
 
-function kindWhere(kind: GaiaFileKind): Prisma.GaiaFileWhereInput {
-  switch (kind) {
-    case "image":
-      return { mimeType: { startsWith: "image/" } };
-    case "pdf":
-      return { mimeType: "application/pdf" };
-    case "audio":
-      return { mimeType: { startsWith: "audio/" } };
-    case "video":
-      return { mimeType: { startsWith: "video/" } };
-    case "document":
-      return {
-        OR: [
-          { mimeType: { startsWith: "text/" } },
-          { mimeType: { contains: "msword" } },
-          { mimeType: { contains: "officedocument" } },
-          { mimeType: { contains: "opendocument" } },
-          { mimeType: "application/rtf" },
-          { mimeType: "application/json" },
-        ],
-      };
-    case "other":
-      return {
-        NOT: {
-          OR: [
-            { mimeType: { startsWith: "image/" } },
-            { mimeType: "application/pdf" },
-            { mimeType: { startsWith: "audio/" } },
-            { mimeType: { startsWith: "video/" } },
-            { mimeType: { startsWith: "text/" } },
-          ],
-        },
-      };
-  }
-}
-
 /** F03/F12 — liste des fichiers : recherche (nom + texte extrait), dossier, type, tri. */
 export async function listFilesQuery(
   userId: string,
   params: ListFilesParams = {},
 ): Promise<{ files: GaiaFileDTO[]; total: number }> {
   const q = (params.q ?? "").trim();
-  const where: Prisma.GaiaFileWhereInput = { userId };
-  if (q !== "") {
-    where.OR = [
-      { name: { contains: q, mode: "insensitive" } },
-      { ocrText: { contains: q, mode: "insensitive" } },
-    ];
-  }
-  if (params.folderId !== undefined && params.folderId !== "") {
-    where.folderId = params.folderId;
-  }
-  if (params.kind) {
-    const kindClause = kindWhere(params.kind);
-    where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), kindClause];
-  }
-  const orderBy: Prisma.GaiaFileOrderByWithRelationInput =
-    params.sort === "name"
-      ? { name: "asc" }
-      : params.sort === "size"
-        ? { size: "desc" }
-        : { createdAt: "desc" };
-  const [rows, folders, counts] = await Promise.all([
-    db.gaiaFile.findMany({ where, orderBy, take: 500 }),
-    db.noteFolder.findMany({ where: { userId }, orderBy: { name: "asc" } }),
-    db.gaiaFile
-      .findMany({ where, select: { id: true } })
-      .then(async (found) => {
-        const ids = found.map((f) => f.id);
-        const [versions, links] = await Promise.all([
-          db.fileVersion.groupBy({ by: ["fileId"], where: { fileId: { in: ids } }, _count: { _all: true } }),
-          db.noteFile.groupBy({ by: ["fileId"], where: { fileId: { in: ids } }, _count: { _all: true } }),
-        ]);
-        return {
-          versions: new Map(versions.map((v) => [v.fileId, v._count._all])),
-          links: new Map(links.map((l) => [l.fileId, l._count._all])),
-        };
-      }),
-  ]);
+  const { rows, folders, counts } = await loadFileListData(userId, {
+    q,
+    folderId: params.folderId,
+    kind: params.kind,
+    sort: params.sort,
+  });
   const folderNames = new Map(folders.map((f) => [f.id, f.name]));
   return {
     files: rows.map((row) =>
@@ -152,16 +90,9 @@ export async function getFileQuery(
   fileId: string,
   fileNotFound: () => Error,
 ): Promise<{ file: GaiaFileDetailDTO }> {
-  const row = await db.gaiaFile.findFirst({
-    where: { userId, id: fileId },
-    include: {
-      versions: { orderBy: { version: "desc" } },
-      annotations: { orderBy: [{ page: "asc" }, { createdAt: "asc" }] },
-      notes: { include: { note: { select: { id: true, title: true, updatedAt: true } } } },
-    },
-  });
+  const row = await findOwnedFileDetail(userId, fileId);
   if (!row) throw fileNotFound();
-  const folders = await db.noteFolder.findMany({ where: { userId }, orderBy: { name: "asc" } });
+  const folders = await loadUserFileFolders(userId);
   const folderNames = new Map(folders.map((f) => [f.id, f.name]));
   const dto = fileToDTO(
     row,
@@ -186,10 +117,7 @@ export async function getFileQuery(
 export async function getStorageUsageQuery(
   userId: string,
 ): Promise<{ usage: GaiaStorageUsageDTO }> {
-  const rows = await db.gaiaFile.findMany({
-    where: { userId },
-    select: { id: true, name: true, mimeType: true, size: true },
-  });
+  const rows = await loadUserFileStorageRows(userId);
   const byKind = new Map<GaiaFileKind, { count: number; bytes: number }>();
   let totalBytes = 0;
   for (const row of rows) {
