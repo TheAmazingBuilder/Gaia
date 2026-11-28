@@ -80,6 +80,11 @@ function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
     .filter((name): name is string => name !== null);
 }
 
+/** Charge les métadonnées de notes nécessaires au calcul de l'aperçu Knowledge. */
+export async function loadOverviewNotesQuery(userId: string): Promise<NoteListRow[]> {
+  return db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT });
+}
+
 export async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
   if (noteIds.length === 0) return new Map();
   const rows = await db.note.findMany({
