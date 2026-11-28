@@ -6,6 +6,7 @@ import {
   findFileVersion,
   loadFileLifecycleMetadata,
 } from "@/modules/files/repositories/lifecycle";
+import { findFolderForFile } from "@/modules/notes/contracts/files";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO } from "@/modules/files/types";
@@ -95,7 +96,10 @@ export async function replaceFileCommand(
   const updated = result.file;
   const committedVersion = result.nextVersion;
 
-  const { folder, noteCount } = await loadFileLifecycleMetadata(userId, row.id, updated.folderId);
+  const [folder, noteCount] = await Promise.all([
+    updated.folderId ? findFolderForFile(userId, updated.folderId) : Promise.resolve(null),
+    loadFileLifecycleMetadata(row.id),
+  ]);
   return {
     file: fileToDTO(updated, folder?.name ?? null, committedVersion, noteCount),
   };
@@ -131,7 +135,10 @@ export async function restoreFileVersionCommand(
   if (!result) throw errors.versionConflict();
   const updated = result.file;
   const nextVersion = result.nextVersion;
-  const { folder, noteCount } = await loadFileLifecycleMetadata(userId, row.id, updated.folderId);
+  const [folder, noteCount] = await Promise.all([
+    updated.folderId ? findFolderForFile(userId, updated.folderId) : Promise.resolve(null),
+    loadFileLifecycleMetadata(row.id),
+  ]);
   return {
     file: fileToDTO(updated, folder?.name ?? null, nextVersion, noteCount),
   };
