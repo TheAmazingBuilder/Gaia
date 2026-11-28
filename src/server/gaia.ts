@@ -119,6 +119,7 @@ import type {
   GaiaNoteRelationDTO,
   GaiaNoteLinksResponse,
   GaiaLinkSuggestion,
+  GaiaMemoryGraphResponse,
 } from "@/modules/knowledge/types";
 export type {
   GaiaKnowledgeTimelineMonth,
@@ -127,6 +128,9 @@ export type {
   GaiaUnlinkedMention,
   GaiaNoteLinksResponse,
   GaiaLinkSuggestion,
+  GaiaMemoryGraphNode,
+  GaiaMemoryGraphEdge,
+  GaiaMemoryGraphResponse,
 } from "@/modules/knowledge/types";
 import {
   createNoteRelationCommand,
@@ -134,6 +138,7 @@ import {
   listNoteRelationsQuery,
 } from "@/modules/knowledge/services/relations";
 import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
+import { getMemoryGraphQuery } from "@/modules/knowledge/services/memory-graph";
 import { getOverviewQuery } from "@/modules/knowledge/services/overview";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
@@ -782,138 +787,10 @@ export async function scheduleNote(
 
 /* ── Phase 2 — Knowledge graph ─────────────────────────────────────────── */
 
-export type GaiaMemoryGraphNode = {
-  id: string;
-  title: string;
-  mastery: MasteryLevel;
-  folderId: string | null;
-  /** Module 2 (K15) : aucune arête ne touche cette note. */
-  orphan: boolean;
-};
-
-export type GaiaMemoryGraphEdge = {
-  from: string;
-  to: string;
-  /** "ref" = a note links to another note; "tag" = two notes share a tag;
-   *  "relation" = a custom relation (Module 2, K08). */
-  kind: "ref" | "tag" | "relation";
-  /** Tag name for "tag" edges (the shared tag). */
-  tagName?: string;
-  /** Relation label for "relation" edges (e.g. "contradicts"). */
-  label?: string;
-};
-
-export type GaiaMemoryGraphResponse = {
-  nodes: GaiaMemoryGraphNode[];
-  edges: GaiaMemoryGraphEdge[];
-  /** Module 2 (K08) : distinct relation labels, for the legend/filter. */
-  relationTypes: string[];
-};
-
-/** Max tag edges in one response: a tag shared by many notes would
- *  otherwise explode combinatorially (a 50-note tag = 1,225 edges). */
-const MAX_TAG_EDGES = 200;
-/** A tag shared by more than this many notes is too generic to draw. */
-const MAX_TAG_GROUP_SIZE = 8;
-
-/**
- * Knowledge graph: nodes are the user's active notes, edges are note→note
- * references (from `ref` blocks, kind NOTE) and shared tags. Ref edges
- * are solid; tag edges are dashed and only drawn for tags shared by 2–8
- * notes, capped at 200 edges total. Deterministic order (createdAt asc)
- * so the layout is stable between loads.
- */
 export async function getMemoryGraph(
   userId: string,
 ): Promise<GaiaMemoryGraphResponse> {
-  const notes = await db.note.findMany({
-    where: { userId, deletedAt: null },
-    select: {
-      id: true,
-      title: true,
-      mastery: true,
-      folderId: true,
-      tagIds: true,
-      blocks: true,
-      createdAt: true,
-    },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-  });
-  const ids = new Set(notes.map((n) => n.id));
-  const nodes: GaiaMemoryGraphNode[] = notes.map((note) => ({
-    id: note.id,
-    title: note.title,
-    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
-    folderId: note.folderId,
-    orphan: true,
-  }));
-
-  const edges: GaiaMemoryGraphEdge[] = [];
-  const seenRef = new Set<string>();
-  for (const note of notes) {
-    for (const block of flattenBlocks(parseJsonBlocks(note.blocks))) {
-      if (block.type !== "ref" || block.ref?.kind !== "NOTE") continue;
-      const target = block.ref.id;
-      if (target === note.id || !ids.has(target)) continue;
-      const key = `${note.id}→${target}`;
-      if (seenRef.has(key)) continue;
-      seenRef.add(key);
-      edges.push({ from: note.id, to: target, kind: "ref" });
-    }
-  }
-
-  // Tag edges: cliques per shared tag, capped (see constants above).
-  const tags = await loadTags(userId);
-  const tagNameOf = new Map(tags.map((t) => [t.id, t.name]));
-  const byTag = new Map<string, string[]>();
-  for (const note of notes) {
-    for (const tagId of parseJsonStringArray(note.tagIds)) {
-      const list = byTag.get(tagId) ?? [];
-      list.push(note.id);
-      byTag.set(tagId, list);
-    }
-  }
-  let tagEdges = 0;
-  for (const [tagId, members] of [...byTag.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0]),
-  )) {
-    if (members.length < 2 || members.length > MAX_TAG_GROUP_SIZE) continue;
-    for (let i = 0; i < members.length && tagEdges < MAX_TAG_EDGES; i++) {
-      for (let j = i + 1; j < members.length && tagEdges < MAX_TAG_EDGES; j++) {
-        edges.push({
-          from: members[i],
-          to: members[j],
-          kind: "tag",
-          tagName: tagNameOf.get(tagId) ?? tagId,
-        });
-        tagEdges += 1;
-      }
-    }
-    if (tagEdges >= MAX_TAG_EDGES) break;
-  }
-
-  // Module 2 (K08) : arêtes de relations personnalisées.
-  const relations = await db.noteRelation.findMany({ where: { userId } });
-  const relationTypes = [...new Set(relations.map((r) => r.type))].sort();
-  for (const rel of relations) {
-    if (!ids.has(rel.fromNoteId) || !ids.has(rel.toNoteId)) continue;
-    edges.push({
-      from: rel.fromNoteId,
-      to: rel.toNoteId,
-      kind: "relation",
-      label: rel.type,
-    });
-  }
-
-  // Une note orpheline n'a aucune arête (K15).
-  const touched = new Set<string>();
-  for (const e of edges) {
-    touched.add(e.from);
-    touched.add(e.to);
-  }
-  for (const node of nodes) node.orphan = !touched.has(node.id);
-
-  return { nodes, edges, relationTypes };
+  return getMemoryGraphQuery(userId, { loadTags });
 }
 
 export type GaiaMemoryHeatmapDay = {
