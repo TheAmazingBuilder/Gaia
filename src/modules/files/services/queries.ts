@@ -4,7 +4,11 @@ import {
   loadFileListData,
   loadUserFileStorageRows,
 } from "@/modules/files/repositories/queries";
-import { listFoldersForFiles } from "@/modules/notes/contracts/files";
+import {
+  countNotesAttachedToFiles,
+  listFoldersForFiles,
+  listNotesAttachedToFile,
+} from "@/modules/notes/contracts/files";
 import { fileKindOf, GAIA_STORAGE_QUOTA_BYTES, type GaiaFileKind } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO, fileVersionToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO, GaiaFileDetailDTO, GaiaStorageUsageDTO } from "@/modules/files/types";
@@ -13,10 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 type DownloadStorage = {
   isConfigured: () => boolean;
   getClient: () => SupabaseClient | null;
-  download: (
-    client: SupabaseClient,
-    path: string,
-  ) => Promise<{ ok: true; blob: Blob; contentType: string } | { ok: false; error: string }>;
+  download: (client: SupabaseClient, path: string) => Promise<{ ok: true; blob: Blob; contentType: string } | { ok: false; error: string }>;
 };
 
 type DownloadErrors = {
@@ -25,7 +26,6 @@ type DownloadErrors = {
   storageDownloadFailed: (message: string) => Error;
 };
 
-/** F01 — download the current binary after checking file ownership. */
 export async function downloadFileQuery(
   userId: string,
   fileId: string,
@@ -35,28 +35,14 @@ export async function downloadFileQuery(
   if (!storage.isConfigured()) throw errors.storageNotConfigured();
   const client = storage.getClient();
   if (!client) throw errors.storageNotConfigured();
-
   const row = await findOwnedFileForDownload(userId, fileId);
   if (!row) throw errors.fileNotFound();
-
   const result = await storage.download(client, row.storagePath);
   if (!result.ok) throw errors.storageDownloadFailed(result.error);
-
-  return {
-    blob: result.blob,
-    contentType: result.contentType,
-    name: row.name,
-    size: row.size,
-  };
+  return { blob: result.blob, contentType: result.contentType, name: row.name, size: row.size };
 }
 
-
-export type ListFilesParams = {
-  q?: string;
-  folderId?: string;
-  kind?: GaiaFileKind;
-  sort?: "newest" | "name" | "size";
-};
+export type ListFilesParams = { q?: string; folderId?: string; kind?: GaiaFileKind; sort?: "newest" | "name" | "size" };
 
 /** F03/F12 — liste des fichiers : recherche (nom + texte extrait), dossier, type, tri. */
 export async function listFilesQuery(
@@ -64,23 +50,19 @@ export async function listFilesQuery(
   params: ListFilesParams = {},
 ): Promise<{ files: GaiaFileDTO[]; total: number }> {
   const q = (params.q ?? "").trim();
-  const [{ rows, counts }, folders] = await Promise.all([
-    loadFileListData(userId, {
-      q,
-      folderId: params.folderId,
-      kind: params.kind,
-      sort: params.sort,
-    }),
+  const [{ rows, versionCounts }, folders] = await Promise.all([
+    loadFileListData(userId, { q, folderId: params.folderId, kind: params.kind, sort: params.sort }),
     listFoldersForFiles(userId),
   ]);
-  const folderNames = new Map(folders.map((f) => [f.id, f.name]));
+  const noteCounts = await countNotesAttachedToFiles(rows.map((row) => row.id));
+  const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]));
   return {
     files: rows.map((row) =>
       fileToDTO(
         row,
         row.folderId ? (folderNames.get(row.folderId) ?? null) : null,
-        counts.versions.get(row.id) ?? 0,
-        counts.links.get(row.id) ?? 0,
+        versionCounts.get(row.id) ?? 0,
+        noteCounts.get(row.id) ?? 0,
       ),
     ),
     total: rows.length,
@@ -95,31 +77,27 @@ export async function getFileQuery(
 ): Promise<{ file: GaiaFileDetailDTO }> {
   const row = await findOwnedFileDetail(userId, fileId);
   if (!row) throw fileNotFound();
-  const folders = await listFoldersForFiles(userId);
-  const folderNames = new Map(folders.map((f) => [f.id, f.name]));
-  const dto = fileToDTO(
-    row,
-    row.folderId ? (folderNames.get(row.folderId) ?? null) : null,
-    row.versions.length,
-    row.notes.length,
-  );
+  const [folders, notes] = await Promise.all([
+    listFoldersForFiles(userId),
+    listNotesAttachedToFile(userId, fileId),
+  ]);
+  const folderNames = new Map(folders.map((folder) => [folder.id, folder.name]));
+  const dto = fileToDTO(row, row.folderId ? (folderNames.get(row.folderId) ?? null) : null, row.versions.length, notes.length);
   return {
     file: {
       ...dto,
       ocrText: row.ocrText,
-      versions: row.versions.map((v) => fileVersionToDTO(v, row.storagePath)),
+      versions: row.versions.map((version) => fileVersionToDTO(version, row.storagePath)),
       annotations: row.annotations.map(fileAnnotationToDTO),
-      notes: row.notes
-        .map((l) => ({ id: l.note.id, title: l.note.title, updatedAt: l.note.updatedAt.toISOString() }))
+      notes: notes
+        .map((note) => ({ id: note.id, title: note.title, updatedAt: note.updatedAt.toISOString() }))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     },
   };
 }
 
 /** F14 — espace de stockage : total, quota, répartition par type, plus gros fichiers. */
-export async function getStorageUsageQuery(
-  userId: string,
-): Promise<{ usage: GaiaStorageUsageDTO }> {
+export async function getStorageUsageQuery(userId: string): Promise<{ usage: GaiaStorageUsageDTO }> {
   const rows = await loadUserFileStorageRows(userId);
   const byKind = new Map<GaiaFileKind, { count: number; bytes: number }>();
   let totalBytes = 0;
@@ -131,16 +109,14 @@ export async function getStorageUsageQuery(
     byKind.set(kind, entry);
     totalBytes += row.size;
   }
-  const largest = [...rows]
-    .sort((a, b) => b.size - a.size)
-    .slice(0, 5)
-    .map((r) => ({ id: r.id, name: r.name, size: r.size, mimeType: r.mimeType }));
+  const largest = [...rows].sort((a, b) => b.size - a.size).slice(0, 5)
+    .map((row) => ({ id: row.id, name: row.name, size: row.size, mimeType: row.mimeType }));
   return {
     usage: {
       totalBytes,
       quotaBytes: GAIA_STORAGE_QUOTA_BYTES,
       fileCount: rows.length,
-      byKind: [...byKind.entries()].map(([kind, v]) => ({ kind, count: v.count, bytes: v.bytes })),
+      byKind: [...byKind.entries()].map(([kind, value]) => ({ kind, count: value.count, bytes: value.bytes })),
       largest,
     },
   };
