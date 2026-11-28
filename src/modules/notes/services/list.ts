@@ -17,6 +17,7 @@ import {
 } from "@/lib/gaia/knowledge";
 import { isMasteryLevel, isTimePeriod, periodOf, type TimePeriod } from "@/lib/gaia/spaced-repetition";
 import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
+import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 
 export const NOTE_LIST_SELECT = {
   id: true,
@@ -60,14 +61,6 @@ type ListNotesDependencies = {
   }>;
   toRow: (note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
 };
-
-async function loadFolders(userId: string): Promise<NoteFolder[]> {
-  return db.noteFolder.findMany({ where: { userId }, orderBy: { name: "asc" } });
-}
-
-async function loadTags(userId: string): Promise<NoteTag[]> {
-  return db.noteTag.findMany({ where: { userId } });
-}
 
 function folderNameOf(folderId: string | null, folders: NoteFolder[]): string | null {
   if (folderId === null) return null;
