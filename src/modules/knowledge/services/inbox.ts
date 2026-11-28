@@ -1,4 +1,11 @@
-import { db } from "@/shared/database/client";
+import {
+  createUserInboxItem,
+  deleteUserInboxItem,
+  findUserInboxItem,
+  listUserInboxItems,
+  markUserInboxItemConverted,
+  setUserInboxItemDoneAt,
+} from "@/modules/knowledge/repositories/inbox";
 import { newBlockId, type GaiaBlock } from "@/lib/gaia/content";
 import { inboxInputSchema } from "@/modules/knowledge/schemas";
 import type { GaiaInboxItemDTO } from "@/modules/knowledge/types";
@@ -29,15 +36,10 @@ function inboxToDTO(row: InboxItem): GaiaInboxItemDTO {
   };
 }
 
-
 export async function listInboxQuery(
   userId: string,
 ): Promise<{ open: GaiaInboxItemDTO[]; done: GaiaInboxItemDTO[] }> {
-  const rows = await db.inboxItem.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const rows = await listUserInboxItems(userId);
   return {
     open: rows.filter((row) => row.doneAt === null).map(inboxToDTO),
     done: rows.filter((row) => row.doneAt !== null).map(inboxToDTO),
@@ -50,9 +52,7 @@ export async function createInboxItemCommand(
   deps: Pick<InboxDependencies, "validationError">,
 ): Promise<{ item: GaiaInboxItemDTO }> {
   const parsed = parseOrThrow(inboxInputSchema, input, deps.validationError);
-  const row = await db.inboxItem.create({
-    data: { userId, text: parsed.text.trim() },
-  });
+  const row = await createUserInboxItem(userId, parsed.text.trim());
   return { item: inboxToDTO(row) };
 }
 
@@ -62,12 +62,9 @@ export async function toggleInboxItemCommand(
   done: boolean,
   deps: Pick<InboxDependencies, "inboxItemNotFound">,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
+  const row = await findUserInboxItem(userId, itemId);
   if (!row) throw deps.inboxItemNotFound();
-  const updated = await db.inboxItem.update({
-    where: { id: row.id },
-    data: { doneAt: done ? new Date() : null },
-  });
+  const updated = await setUserInboxItemDoneAt(row.id, done ? new Date() : null);
   return { item: inboxToDTO(updated) };
 }
 
@@ -76,9 +73,9 @@ export async function deleteInboxItemCommand(
   itemId: string,
   deps: Pick<InboxDependencies, "inboxItemNotFound">,
 ): Promise<{ ok: true }> {
-  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
+  const row = await findUserInboxItem(userId, itemId);
   if (!row) throw deps.inboxItemNotFound();
-  await db.inboxItem.delete({ where: { id: row.id } });
+  await deleteUserInboxItem(row.id);
   return { ok: true };
 }
 
@@ -87,7 +84,7 @@ export async function convertInboxItemCommand(
   itemId: string,
   deps: InboxDependencies,
 ): Promise<{ note: GaiaNoteResponse["note"]; item: GaiaInboxItemDTO }> {
-  const row = await db.inboxItem.findFirst({ where: { userId, id: itemId } });
+  const row = await findUserInboxItem(userId, itemId);
   if (!row) throw deps.inboxItemNotFound();
 
   if (row.noteId) {
@@ -110,9 +107,6 @@ export async function convertInboxItemCommand(
   }
 
   const created = await deps.createNote(userId, { title, blocks });
-  const updated = await db.inboxItem.update({
-    where: { id: row.id },
-    data: { noteId: created.note.id, doneAt: new Date() },
-  });
+  const updated = await markUserInboxItemConverted(row.id, created.note.id, new Date());
   return { note: created.note, item: inboxToDTO(updated) };
 }
