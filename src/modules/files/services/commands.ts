@@ -1,9 +1,11 @@
 import {
   countFileNoteAssociations, countFileVersions, createFileAnnotationRecord,
   createFileWithFirstVersion, deleteFileAnnotationRecord, findOwnedFileAnnotation,
-  findOwnedFileFolder, findOwnedFileRecord, loadFileFolderName, saveFileOcrText,
-  updateFileRecord,
+  findOwnedFileRecord, saveFileOcrText, updateFileRecord,
 } from "@/modules/files/repositories/commands";
+import {
+  findFolderForFile,
+} from "@/modules/notes/contracts/files";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO } from "@/modules/files/mappers";
 import type {
@@ -67,7 +69,7 @@ export async function createFileCommand(
 
   let folderId: string | null = null;
   if (input.folderId) {
-    const folder = await findOwnedFileFolder(userId, input.folderId);
+    const folder = await findFolderForFile(userId, input.folderId);
     if (!folder) throw errors.folderNotFound();
     folderId = folder.id;
   }
@@ -81,7 +83,7 @@ export async function createFileCommand(
 
   try {
     const row = await createFileWithFirstVersion({ id, userId, name, mimeType: input.mimeType.slice(0, 200), size: input.size, storagePath: path, folderId });
-    const folder = await loadFileFolderName(userId, folderId);
+    const folder = folderId ? await findFolderForFile(userId, folderId) : null;
     return { file: fileToDTO(row, folder?.name ?? null, 1, 0) };
   } catch (error) {
     await storage.remove(client, [path]);
@@ -109,7 +111,7 @@ export async function updateFileCommand(
     if (input.folderId === null) {
       folderId = null;
     } else {
-      const folder = await findOwnedFileFolder(userId, input.folderId);
+      const folder = await findFolderForFile(userId, input.folderId);
       if (!folder) throw errors.folderNotFound();
       folderId = folder.id;
     }
@@ -117,7 +119,8 @@ export async function updateFileCommand(
 
   const [updated, folder, versionCount, noteCount] = await Promise.all([
     updateFileRecord(row.id, { ...(input.name ? { name: input.name } : {}), folderId }),
-    loadFileFolderName(userId, folderId), countFileVersions(row.id), countFileNoteAssociations(row.id),
+    folderId ? findFolderForFile(userId, folderId) : Promise.resolve(null),
+    countFileVersions(row.id), countFileNoteAssociations(row.id),
   ]);
 
   return { file: fileToDTO(updated, folder?.name ?? null, versionCount, noteCount) };
@@ -134,7 +137,8 @@ export async function saveFileTextCommand(
   if (!row) throw fileNotFound();
 
   const [updated, folder, versionCount, noteCount] = await Promise.all([
-    saveFileOcrText(row.id, input.text), loadFileFolderName(userId, row.folderId),
+    saveFileOcrText(row.id, input.text),
+    row.folderId ? findFolderForFile(userId, row.folderId) : Promise.resolve(null),
     countFileVersions(row.id), countFileNoteAssociations(row.id),
   ]);
   return { file: fileToDTO(updated, folder?.name ?? null, versionCount, noteCount) };
