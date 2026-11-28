@@ -1,4 +1,10 @@
-import { db } from "@/shared/database/client";
+import {
+  createUserPeriodicNoteFolder,
+  findUserPeriodicNote,
+  findUserPeriodicNoteFolder,
+  findUserTimezone,
+  touchUserPeriodicNote,
+} from "@/modules/knowledge/repositories/periodic-notes";
 import { newBlockId, type GaiaBlock } from "@/lib/gaia/content";
 import { dailyNoteTitle, weeklyNoteTitle, weekStart } from "@/lib/gaia/knowledge";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
@@ -17,31 +23,23 @@ type PeriodicNotesDependencies = {
 };
 
 async function findOrCreateFolder(userId: string, name: string): Promise<NoteFolder> {
-  const existing = await db.noteFolder.findFirst({ where: { userId, name } });
+  const existing = await findUserPeriodicNoteFolder(userId, name);
   if (existing) return existing;
-  return db.noteFolder.create({ data: { userId, name, parentId: null } });
+  return createUserPeriodicNoteFolder(userId, name);
 }
 
 export async function getOrCreateDailyNoteCommand(
   userId: string,
   deps: PeriodicNotesDependencies,
 ): Promise<GaiaNoteResponse> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
-  });
+  const user = await findUserTimezone(userId);
   const tz = user?.timezone ?? "UTC";
   const now = new Date();
   const title = dailyNoteTitle(now, tz);
   const folder = await findOrCreateFolder(userId, "Daily Notes");
-  const existing = await db.note.findFirst({
-    where: { userId, folderId: folder.id, title, deletedAt: null },
-  });
+  const existing = await findUserPeriodicNote(userId, folder.id, title);
   if (existing) {
-    const touched = await db.note.update({
-      where: { id: existing.id },
-      data: { lastViewedAt: new Date() },
-    });
+    const touched = await touchUserPeriodicNote(existing.id, new Date());
     const [folders, tags] = await Promise.all([deps.loadFolders(userId), deps.loadTags(userId)]);
     return deps.noteResponse(userId, touched, folders, tags);
   }
@@ -67,22 +65,14 @@ export async function getOrCreateWeeklyNoteCommand(
   userId: string,
   deps: PeriodicNotesDependencies,
 ): Promise<GaiaNoteResponse> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
-  });
+  const user = await findUserTimezone(userId);
   const tz = user?.timezone ?? "UTC";
   const now = new Date();
   const title = weeklyNoteTitle(now);
   const folder = await findOrCreateFolder(userId, "Weekly Notes");
-  const existing = await db.note.findFirst({
-    where: { userId, folderId: folder.id, title, deletedAt: null },
-  });
+  const existing = await findUserPeriodicNote(userId, folder.id, title);
   if (existing) {
-    const touched = await db.note.update({
-      where: { id: existing.id },
-      data: { lastViewedAt: new Date() },
-    });
+    const touched = await touchUserPeriodicNote(existing.id, new Date());
     const [folders, tags] = await Promise.all([deps.loadFolders(userId), deps.loadTags(userId)]);
     return deps.noteResponse(userId, touched, folders, tags);
   }
