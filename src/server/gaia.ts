@@ -109,7 +109,7 @@ import {
   getOrphanNotes as getOrphanNotesAdapter,
   listNoteRelations as listNoteRelationsAdapter,
 } from "@/server/gaia/knowledge-navigation";
-import { getOverviewQuery } from "@/modules/knowledge/services/overview";
+import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
 import { parseJsonProperties, tagNamesOf, toRow, noteResponse } from "@/modules/notes/mappers";
 import {
   listUserRelations as loadRelationsRaw,
@@ -132,7 +132,7 @@ import {
   listTemplates,
 } from "@/server/gaia/templates";
 
-import { loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
+import { loadOverviewNotesQuery, loadBlocksFor, loadSearchNotesQuery } from "@/modules/notes/services/list";
 import {
   getNote as getNoteAdapter,
   listNotes as listNotesAdapter,
@@ -339,7 +339,7 @@ export async function instantiateTemplate(
 /* ── Overview ────────────────────────────────────────────────────────── */
 
 export async function getOverview(userId: string): Promise<GaiaOverviewResponse> {
-  return getOverviewQuery(userId, {
+  return getOverviewAdapter(userId, {
     loadFolders,
     loadTags,
     loadNotes: loadOverviewNotesQuery,
