@@ -109,9 +109,6 @@ import {
   deleteNoteRelationCommand,
   listNoteRelationsQuery,
 } from "@/modules/knowledge/services/relations";
-import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
-import { getMemoryGraphQuery } from "@/modules/knowledge/services/memory-graph";
-import { getMemoryStatsQuery } from "@/modules/knowledge/services/memory-stats";
 import { getOverviewQuery } from "@/modules/knowledge/services/overview";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
@@ -295,11 +292,7 @@ export { reviewNote, moveNoteToMastery, scheduleNote };
 
 /* ── Phase 2 — Knowledge graph ─────────────────────────────────────────── */
 
-export async function getMemoryGraph(
-  userId: string,
-): Promise<GaiaMemoryGraphResponse> {
-  return getMemoryGraphQuery(userId, { loadTags });
-}
+export { getMemoryGraph, getMemoryStats, getKnowledgeTimeline } from "@/server/gaia/knowledge-insights";
 
 /**
  * Memory Score — transparent formula (also documented in the README):
@@ -319,11 +312,7 @@ export async function getMemoryGraph(
  * review day. "created" is exact (from createdAt). If per-day review
  * history ever needs to be exact, add a review-events table.
  */
-export async function getMemoryStats(
-  userId: string,
-): Promise<GaiaMemoryStatsResponse> {
-  return getMemoryStatsQuery(userId);
-}
+
 
 /* ── Versions ────────────────────────────────────────────────────────── */
 
@@ -492,11 +481,7 @@ export async function getOrphanNotes(
 
 // ── K16 — Timeline des connaissances ──────────────────────────────────
 
-export async function getKnowledgeTimeline(
-  userId: string,
-): Promise<{ months: GaiaKnowledgeTimelineMonth[] }> {
-  return getKnowledgeTimelineQuery(userId);
-}
+
 
 // ── K06 — Collections dynamiques ──────────────────────────────────────
 
