@@ -1,5 +1,5 @@
 import type { GaiaBlock } from "@/lib/gaia/content";
-import { parseInlineSegments, stripInlineMarkers } from "./inline";
+import { stripInlineMarkers } from "./inline";
 import { flattenBlocks } from "./tree";
 
 const TEXT_BEARING = new Set([
