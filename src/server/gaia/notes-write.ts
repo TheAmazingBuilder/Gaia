@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createNoteCommand, duplicateNoteCommand } from "@/modules/notes/services/commands";
 import { updateNoteCommand } from "@/modules/notes/services/update";
 import { findTemplateQuery } from "@/modules/notes/services/templates";
