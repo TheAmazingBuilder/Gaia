@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { isMasteryLevel } from "@/lib/gaia/spaced-repetition";
 import type { GaiaKnowledgeTimelineMonth } from "@/modules/knowledge/types";
 
