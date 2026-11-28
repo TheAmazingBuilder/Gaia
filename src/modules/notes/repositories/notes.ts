@@ -1,5 +1,6 @@
 import type { Note, Prisma } from "@prisma/client";
 import { db } from "@/shared/database/client";
+import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
 
 /**
  * Prisma projection used by the Notes list and Knowledge overview queries.
@@ -44,4 +45,27 @@ export function loadTags(userId: string) {
 /** Resolve an active note only within its owner's scope. */
 export function findActiveNote(userId: string, noteId: string): Promise<Note | null> {
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
+}
+
+/** Load note metadata for the Knowledge overview without exposing Prisma types. */
+export function loadOverviewNotesQuery(userId: string): Promise<NoteListRow[]> {
+  return db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT });
+}
+
+/** Load active notes and their content for full-text note search. */
+export function loadSearchNotesQuery(userId: string): Promise<NoteRowInput[]> {
+  return db.note.findMany({
+    where: { userId, deletedAt: null },
+    select: { ...NOTE_LIST_SELECT, blocks: true },
+  });
+}
+
+/** Load note content for a set of already owner-scoped note IDs. */
+export async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
+  if (noteIds.length === 0) return new Map();
+  const rows = await db.note.findMany({
+    where: { id: { in: noteIds } },
+    select: { id: true, blocks: true },
+  });
+  return new Map(rows.map((row) => [row.id, row.blocks]));
 }
