@@ -90,7 +90,7 @@ export async function createRestoredFileVersion(input: {
   });
 }
 
-export async function findOwnedFileVersion(userId: string, fileId: string, version: number) {
+export async function findFileVersion(fileId: string, version: number) {
   return db.fileVersion.findFirst({
     where: { fileId, version },
   });
