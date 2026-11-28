@@ -61,7 +61,6 @@ import type {
   Note,
   NoteFolder,
   NoteTag,
-  NoteVersion,
   Prisma,
 } from "@prisma/client";
 import type {
@@ -216,11 +215,7 @@ import {
   periodOf,
   type TimePeriod,
 } from "@/lib/gaia/spaced-repetition";
-import {
-  shouldSnapshot,
-  sortVersionsNewestFirst,
-  versionsBeyondCap,
-} from "@/lib/gaia/versioning";
+import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import {
   isDescendantOf,
   suggestLinks,
@@ -461,37 +456,6 @@ async function findNoteAnyState(userId: string, noteId: string): Promise<Note | 
   return db.note.findFirst({ where: { userId, id: noteId } });
 }
 
-/* ── Versioning ──────────────────────────────────────────────────────── */
-
-async function versionsOf(userId: string, noteId: string): Promise<NoteVersion[]> {
-  const versions = await db.noteVersion.findMany({
-    where: { userId, noteId },
-  });
-  return sortVersionsNewestFirst(versions);
-}
-
-async function maybeSnapshotVersion(userId: string, note: Note): Promise<void> {
-  const versions = await versionsOf(userId, note.id);
-  const newest = versions[0] ?? null;
-  if (!shouldSnapshot(newest ? newest.savedAt : null, new Date())) return;
-  await db.noteVersion.create({
-    data: {
-      userId,
-      noteId: note.id,
-      title: note.title,
-      blocks: note.blocks,
-      savedAt: note.updatedAt,
-    },
-  });
-  const after = await versionsOf(userId, note.id);
-  const extra = versionsBeyondCap(after);
-  if (extra.length > 0) {
-    await db.noteVersion.deleteMany({
-      where: { userId, id: { in: extra } },
-    });
-  }
-}
-
 /* ── Notes : lecture ─────────────────────────────────────────────────── */
 
 export async function listNotes(
@@ -560,7 +524,7 @@ export async function updateNote(
     parseStoredBlocks: parseJsonBlocks,
     assertSafeImageSources,
     normalizeProperties,
-    maybeSnapshotVersion,
+    createNoteSnapshotIfNeeded,
     noteResponse: async (ownerId, note) => {
       const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
       return noteResponse(ownerId, note, folders, tags);
@@ -730,7 +694,7 @@ export async function restoreVersion(
   return restoreVersionCommand(userId, noteId, versionId, {
     noteNotFound: NOTE_NOT_FOUND,
     versionNotFound: VERSION_NOT_FOUND,
-    maybeSnapshotVersion,
+    createNoteSnapshotIfNeeded,
     cloneBlocksWithNewIds,
     noteResponse: async (ownerId, note) => {
       const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
