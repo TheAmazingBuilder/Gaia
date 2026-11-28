@@ -18,8 +18,15 @@ import {
 import { isMasteryLevel, isTimePeriod, periodOf, type TimePeriod } from "@/lib/gaia/spaced-repetition";
 import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
 import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
-import { NOTE_LIST_SELECT, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-export { NOTE_LIST_SELECT };
+import {
+  NOTE_LIST_SELECT,
+  loadBlocksFor,
+  loadFolders,
+  loadOverviewNotesQuery,
+  loadSearchNotesQuery,
+  loadTags,
+} from "@/modules/notes/repositories/notes";
+export { NOTE_LIST_SELECT, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery };
 export type { NoteListRow, NoteRowInput };
 
 
@@ -50,28 +57,6 @@ function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
   return tagIds
     .map((tagId) => tags.find((tag) => tag.id === tagId)?.name ?? null)
     .filter((name): name is string => name !== null);
-}
-
-/** Charge les métadonnées de notes nécessaires au calcul de l'aperçu Knowledge. */
-export async function loadOverviewNotesQuery(userId: string): Promise<NoteListRow[]> {
-  return db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT });
-}
-
-/** Charge les notes actives avec leur contenu pour la recherche textuelle. */
-export async function loadSearchNotesQuery(userId: string): Promise<NoteRowInput[]> {
-  return db.note.findMany({
-    where: { userId, deletedAt: null },
-    select: { ...NOTE_LIST_SELECT, blocks: true },
-  });
-}
-
-export async function loadBlocksFor(noteIds: string[]): Promise<Map<string, string>> {
-  if (noteIds.length === 0) return new Map();
-  const rows = await db.note.findMany({
-    where: { id: { in: noteIds } },
-    select: { id: true, blocks: true },
-  });
-  return new Map(rows.map((row) => [row.id, row.blocks]));
 }
 
 function pageWindow(query: GaiaListQuery): { page: number; pageSize: number } {
