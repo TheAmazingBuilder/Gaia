@@ -17,6 +17,7 @@ import {
 import type { GaiaSmartCollectionDTO } from "@/modules/knowledge/types";
 import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
 import type { NoteFolder, SmartCollection } from "@prisma/client";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type CollectionDependencies = {
   validationError: (
@@ -39,19 +40,6 @@ function safeJsonParse(raw: string | null | undefined): unknown {
   }
 }
 
-function parseInput<T>(schema: { safeParse(input: unknown): { success: true; data: T } | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } } }, input: unknown, validationError: CollectionDependencies["validationError"]): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.map(String).join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 function parseCriteria(raw: string): KnowledgeCollectionCriteria {
   const parsed = gaiaCollectionCriteriaSchema.safeParse(safeJsonParse(raw));
@@ -126,7 +114,7 @@ export async function createCollectionCommand(
   input: unknown,
   deps: CollectionDependencies,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  const parsed = parseInput(collectionInputSchema, input, deps.validationError);
+  const parsed = parseOrThrow(collectionInputSchema, input, deps.validationError);
   if (parsed.criteria?.folderId) {
     const folder = await db.noteFolder.findFirst({
       where: { userId, id: parsed.criteria.folderId },
