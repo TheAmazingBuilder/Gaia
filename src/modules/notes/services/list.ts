@@ -17,33 +17,12 @@ import {
 } from "@/lib/gaia/knowledge";
 import { isMasteryLevel, isTimePeriod, periodOf, type TimePeriod } from "@/lib/gaia/spaced-repetition";
 import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
+import { NOTE_LIST_SELECT, type NoteListRow, type NoteRowInput } from "@/modules/notes/types/list";
+export { NOTE_LIST_SELECT };
+export type { NoteListRow, NoteRowInput };
 import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
 
-export const NOTE_LIST_SELECT = {
-  id: true,
-  title: true,
-  icon: true,
-  folderId: true,
-  tagIds: true,
-  favorite: true,
-  templateId: true,
-  cover: true,
-  wordGoal: true,
-  properties: true,
-  createdAt: true,
-  updatedAt: true,
-  lastViewedAt: true,
-  deletedAt: true,
-  mastery: true,
-  lastReviewedAt: true,
-  nextReviewAt: true,
-  reviewCount: true,
-  easeFactor: true,
-  intervalDays: true,
-} as const;
 
-export type NoteListRow = Prisma.NoteGetPayload<{ select: typeof NOTE_LIST_SELECT }>;
-export type NoteRowInput = NoteListRow & { blocks: string };
 
 type ListNotesDependencies = {
   validationError: (message: string) => Error;
