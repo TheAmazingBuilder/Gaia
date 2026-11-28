@@ -1,4 +1,4 @@
-import { db } from "@/shared/database/client";
+import { loadNoteLinkCandidates } from "@/modules/knowledge/repositories/links";
 import {
   excerptOf,
   flattenBlocks,
@@ -50,7 +50,7 @@ export async function getNoteLinksQuery(
     deps.loadFolders(userId),
     deps.loadTags(userId),
     deps.loadRelations(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
+    loadNoteLinkCandidates(userId),
   ]);
 
   const outgoing: GaiaNoteLinksResponse["outgoing"] = [];
