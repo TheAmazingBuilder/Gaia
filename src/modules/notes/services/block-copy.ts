@@ -27,3 +27,8 @@ export function cloneBlocksWithNewIds(blocks: GaiaBlock[]): GaiaBlock[] {
   };
   return blocks.map(cloneOne);
 }
+
+/** Create a new, empty paragraph block with a fresh identifier. */
+export function createEmptyParagraphBlock(): GaiaBlock {
+  return { id: newBlockId(), type: "paragraph", text: "" };
+}
