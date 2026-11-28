@@ -7,15 +7,8 @@ import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
 import type { Note } from "@prisma/client";
 import type { GaiaNoteResponse, GaiaTemplateDTO } from "@/modules/notes/types";
 import { builtInTemplates, findBuiltInTemplate } from "@/lib/gaia/templates";
-import type { z } from "zod";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
-type SafeParser<T> = {
-  safeParse: (
-    input: unknown,
-  ) =>
-    | { success: true; data: T }
-    | { success: false; error: z.ZodError };
-};
 
 type TemplateDependencies = {
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
@@ -30,23 +23,6 @@ type TemplateDependencies = {
   createNote: (userId: string, input: unknown) => Promise<GaiaNoteResponse>;
 };
 
-function parseOrThrow<T>(
-  schema: SafeParser<T>,
-  input: unknown,
-  validationError: TemplateDependencies["validationError"],
-): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 function stripRefs(blocks: GaiaBlock[]): GaiaBlock[] {
   return blocks.map((block) => {
