@@ -62,6 +62,32 @@ export function loadUserNotesForReference(userId: string): Promise<Note[]> {
   return db.note.findMany({ where: { userId } });
 }
 
+/** Load notes matching a previously constructed, user-scoped filter. */
+export function loadNotesMatchingFilters(where: Prisma.NoteWhereInput): Promise<Note[]> {
+  return db.note.findMany({ where });
+}
+
+/** Count notes matching the same filter used by the list page query. */
+export function countNotes(where: Prisma.NoteWhereInput): Promise<number> {
+  return db.note.count({ where });
+}
+
+/** Load one metadata page using the shared Notes list projection. */
+export function loadNotesPage(
+  where: Prisma.NoteWhereInput,
+  orderBy: Prisma.NoteOrderByWithRelationInput[],
+  skip: number,
+  take: number,
+): Promise<NoteListRow[]> {
+  return db.note.findMany({
+    where,
+    select: NOTE_LIST_SELECT,
+    orderBy,
+    skip,
+    take,
+  });
+}
+
 /** Load note metadata for the Knowledge overview without exposing Prisma types. */
 export function loadOverviewNotesQuery(userId: string): Promise<NoteListRow[]> {
   return db.note.findMany({ where: { userId }, select: NOTE_LIST_SELECT });
