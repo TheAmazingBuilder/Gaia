@@ -1,4 +1,3 @@
-import type { FileAnnotation, FileVersion, GaiaFile } from "@prisma/client";
 import { fileKindOf } from "@/lib/gaia/files";
 import type {
   GaiaFileAnnotationDTO,
@@ -6,8 +5,40 @@ import type {
   GaiaFileVersionDTO,
 } from "@/modules/files/types";
 
+type FileRowForDTO = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  folderId: string | null;
+  ocrText: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type FileVersionRowForDTO = {
+  version: number;
+  size: number;
+  createdAt: Date;
+  storagePath: string;
+};
+
+type FileAnnotationRowForDTO = {
+  id: string;
+  fileId: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number | null;
+  height: number | null;
+  type: string;
+  text: string;
+  color: string;
+  createdAt: Date;
+};
+
 export function fileToDTO(
-  row: GaiaFile,
+  row: FileRowForDTO,
   folderName: string | null,
   versionCount: number,
   noteCount: number,
@@ -28,7 +59,10 @@ export function fileToDTO(
   };
 }
 
-export function fileVersionToDTO(row: FileVersion, currentPath: string): GaiaFileVersionDTO {
+export function fileVersionToDTO(
+  row: FileVersionRowForDTO,
+  currentPath: string,
+): GaiaFileVersionDTO {
   return {
     version: row.version,
     size: row.size,
@@ -37,7 +71,9 @@ export function fileVersionToDTO(row: FileVersion, currentPath: string): GaiaFil
   };
 }
 
-export function fileAnnotationToDTO(row: FileAnnotation): GaiaFileAnnotationDTO {
+export function fileAnnotationToDTO(
+  row: FileAnnotationRowForDTO,
+): GaiaFileAnnotationDTO {
   return {
     id: row.id,
     fileId: row.fileId,
