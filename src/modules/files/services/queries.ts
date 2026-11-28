@@ -2,9 +2,9 @@ import {
   findOwnedFileDetail,
   findOwnedFileForDownload,
   loadFileListData,
-  loadUserFileFolders,
   loadUserFileStorageRows,
 } from "@/modules/files/repositories/queries";
+import { listFoldersForFiles } from "@/modules/notes/contracts/files";
 import { fileKindOf, GAIA_STORAGE_QUOTA_BYTES, type GaiaFileKind } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO, fileVersionToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO, GaiaFileDetailDTO, GaiaStorageUsageDTO } from "@/modules/files/types";
@@ -64,12 +64,15 @@ export async function listFilesQuery(
   params: ListFilesParams = {},
 ): Promise<{ files: GaiaFileDTO[]; total: number }> {
   const q = (params.q ?? "").trim();
-  const { rows, folders, counts } = await loadFileListData(userId, {
-    q,
-    folderId: params.folderId,
-    kind: params.kind,
-    sort: params.sort,
-  });
+  const [{ rows, counts }, folders] = await Promise.all([
+    loadFileListData(userId, {
+      q,
+      folderId: params.folderId,
+      kind: params.kind,
+      sort: params.sort,
+    }),
+    listFoldersForFiles(userId),
+  ]);
   const folderNames = new Map(folders.map((f) => [f.id, f.name]));
   return {
     files: rows.map((row) =>
@@ -92,7 +95,7 @@ export async function getFileQuery(
 ): Promise<{ file: GaiaFileDetailDTO }> {
   const row = await findOwnedFileDetail(userId, fileId);
   if (!row) throw fileNotFound();
-  const folders = await loadUserFileFolders(userId);
+  const folders = await listFoldersForFiles(userId);
   const folderNames = new Map(folders.map((f) => [f.id, f.name]));
   const dto = fileToDTO(
     row,
