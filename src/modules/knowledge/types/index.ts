@@ -46,3 +46,13 @@ export type GaiaKnowledgeTimelineMonth = {
   relations: number;
   notes: Array<{ id: string; title: string; mastery: import("@/lib/gaia/spaced-repetition").MasteryLevel; createdAt: string }>;
 };
+
+export type GaiaSmartCollectionDTO = {
+  id: string;
+  name: string;
+  icon: string;
+  criteria: import("@/lib/gaia/knowledge").KnowledgeCollectionCriteria;
+  noteCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
