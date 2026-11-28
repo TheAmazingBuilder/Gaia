@@ -20,11 +20,14 @@ import type { GaiaListQuery, GaiaNoteRow } from "@/modules/notes/types";
 import type { NoteListRow, NoteRowInput } from "@/modules/notes/types/list";
 import {
   NOTE_LIST_SELECT,
+  findUserSmartCollection,
+  loadActiveNotesForCollection,
   loadBlocksFor,
   loadFolders,
   loadOverviewNotesQuery,
   loadSearchNotesQuery,
   loadTags,
+  loadUserNotesForReference,
 } from "@/modules/notes/repositories/notes";
 export { NOTE_LIST_SELECT, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery };
 export type { NoteListRow, NoteRowInput };
@@ -112,9 +115,7 @@ export async function listNotesQuery(
   const { page, pageSize } = pageWindow(query);
 
   if (query.collectionId !== undefined && query.collectionId !== "") {
-    const collection = await db.smartCollection.findFirst({
-      where: { userId, id: query.collectionId },
-    });
+    const collection = await findUserSmartCollection(userId, query.collectionId);
     if (!collection) throw deps.collectionNotFound();
     const rawCriteria = safeJsonParse(collection.criteria);
     const parsedCriteria = deps.collectionCriteriaSchema.safeParse(rawCriteria);
@@ -125,7 +126,7 @@ export async function listNotesQuery(
       ? descendantIds(buildTree(folders), criteria.folderId, false)
       : [];
     const now = new Date();
-    const all = await db.note.findMany({ where: { userId, deletedAt: null } });
+    const all = await loadActiveNotesForCollection(userId);
     const filtered = all.filter((note) =>
       memoryMatches(note, query, now, deps.validationError) &&
       matchCollectionCriteria(
@@ -152,7 +153,7 @@ export async function listNotesQuery(
     const parsedKind = gaiaRefKindSchema.safeParse(query.refKind);
     if (!parsedKind.success) throw deps.validationError("Invalid reference type.");
     const kind = parsedKind.data;
-    const all = await db.note.findMany({ where: { userId } });
+    const all = await loadUserNotesForReference(userId);
     const now = new Date();
     const linked = all.filter((note) =>
       note.deletedAt === null &&
