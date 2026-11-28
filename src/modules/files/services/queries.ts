@@ -3,6 +3,48 @@ import { db } from "@/lib/db";
 import { fileKindOf, GAIA_STORAGE_QUOTA_BYTES, type GaiaFileKind } from "@/lib/gaia/files";
 import { fileAnnotationToDTO, fileToDTO, fileVersionToDTO } from "@/modules/files/mappers";
 import type { GaiaFileDTO, GaiaFileDetailDTO, GaiaStorageUsageDTO } from "@/modules/files/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+type DownloadStorage = {
+  isConfigured: () => boolean;
+  getClient: () => SupabaseClient | null;
+  download: (
+    client: SupabaseClient,
+    path: string,
+  ) => Promise<{ ok: true; blob: Blob; contentType: string } | { ok: false; error: string }>;
+};
+
+type DownloadErrors = {
+  fileNotFound: () => Error;
+  storageNotConfigured: () => Error;
+  storageDownloadFailed: (message: string) => Error;
+};
+
+/** F01 — download the current binary after checking file ownership. */
+export async function downloadFileQuery(
+  userId: string,
+  fileId: string,
+  errors: DownloadErrors,
+  storage: DownloadStorage,
+): Promise<{ blob: Blob; contentType: string; name: string; size: number }> {
+  if (!storage.isConfigured()) throw errors.storageNotConfigured();
+  const client = storage.getClient();
+  if (!client) throw errors.storageNotConfigured();
+
+  const row = await db.gaiaFile.findFirst({ where: { userId, id: fileId } });
+  if (!row) throw errors.fileNotFound();
+
+  const result = await storage.download(client, row.storagePath);
+  if (!result.ok) throw errors.storageDownloadFailed(result.error);
+
+  return {
+    blob: result.blob,
+    contentType: result.contentType,
+    name: row.name,
+    size: row.size,
+  };
+}
+
 
 export type ListFilesParams = {
   q?: string;
