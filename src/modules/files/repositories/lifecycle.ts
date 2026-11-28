@@ -96,10 +96,6 @@ export async function findFileVersion(fileId: string, version: number) {
   });
 }
 
-export async function loadFileLifecycleMetadata(fileId: string) {
-  return db.noteFile.count({ where: { fileId } });
-}
-
 /**
  * Lock the parent row while removing all immutable version binaries and
  * deleting metadata. The callback intentionally runs inside the transaction
