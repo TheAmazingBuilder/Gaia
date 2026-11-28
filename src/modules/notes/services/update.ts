@@ -1,4 +1,11 @@
-import { db } from "@/shared/database/client";
+import {
+  findActiveNote,
+  loadOtherActiveNotesForSync,
+  loadTags,
+  updateNoteLastViewed,
+  updateNoteRecord,
+  updateNoteBlocks,
+} from "@/modules/notes/repositories/notes";
 import { noteUpdateInputSchema } from "@/modules/notes/schemas";
 import type { GaiaNoteResponse, GaiaNoteProperty } from "@/modules/notes/types";
 import type { GaiaBlock, GaiaBlockInput } from "@/lib/gaia/content";
@@ -25,10 +32,7 @@ async function propagateSyncedBlocks(
   synced: Map<string, string>,
   parseStoredBlocks: UpdateNoteDependencies["parseStoredBlocks"],
 ): Promise<void> {
-  const others = await db.note.findMany({
-    where: { userId, deletedAt: null, id: { not: sourceNoteId } },
-    select: { id: true, blocks: true },
-  });
+  const others = await loadOtherActiveNotesForSync(userId, sourceNoteId);
 
   for (const other of others) {
     let next = parseStoredBlocks(other.blocks);
@@ -41,10 +45,7 @@ async function propagateSyncedBlocks(
       }
     }
     if (changed) {
-      await db.note.update({
-        where: { id: other.id },
-        data: { blocks: JSON.stringify(next) },
-      });
+      await updateNoteBlocks(other.id, JSON.stringify(next));
     }
   }
 }
@@ -60,9 +61,7 @@ export async function updateNoteCommand(
   deps: UpdateNoteDependencies,
 ): Promise<GaiaNoteResponse> {
   const parsed = parseOrThrow(noteUpdateInputSchema, input, deps.validationError);
-  const note = await db.note.findFirst({
-    where: { userId, id: noteId, deletedAt: null },
-  });
+  const note = await findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
   const hasMeaningfulChange =
@@ -78,10 +77,7 @@ export async function updateNoteCommand(
 
   if (!hasMeaningfulChange) {
     if (parsed.touchViewed === true) {
-      const touched = await db.note.update({
-        where: { id: note.id },
-        data: { lastViewedAt: new Date() },
-      });
+      const touched = await updateNoteLastViewed(note.id);
       return deps.noteResponse(userId, touched);
     }
     return deps.noteResponse(userId, note);
@@ -112,7 +108,7 @@ export async function updateNoteCommand(
     data.properties = JSON.stringify(deps.normalizeProperties(parsed.properties));
   }
   if (parsed.tagIds !== undefined) {
-    const known = await db.noteTag.findMany({ where: { userId } });
+    const known = await loadTags(userId);
     const knownIds = new Set(known.map((tag) => tag.id));
     data.tagIds = JSON.stringify(parsed.tagIds.filter((id) => knownIds.has(id)));
   }
@@ -122,7 +118,7 @@ export async function updateNoteCommand(
     data.blocks = JSON.stringify(blocks);
   }
 
-  const updated = await db.note.update({ where: { id: note.id }, data });
+  const updated = await updateNoteRecord(note.id, data);
 
   if (parsed.blocks !== undefined) {
     const synced = collectSyncedTexts(deps.normalizeBlocks(parsed.blocks));
