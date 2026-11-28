@@ -16,6 +16,7 @@ export async function createReplacementFileVersion(input: {
   mimeType: string;
   size: number;
   storagePath: string;
+  version: number;
 }) {
   return db.$transaction(async (tx) => {
     // Compare-and-swap: only one concurrent operation can advance this file
@@ -36,16 +37,10 @@ export async function createReplacementFileVersion(input: {
     });
     if (claimed.count !== 1) return null;
 
-    const latest = await tx.fileVersion.findFirst({
-      where: { fileId: input.fileId },
-      orderBy: { version: "desc" },
-      select: { version: true },
-    });
-    const nextVersion = (latest?.version ?? 0) + 1;
     await tx.fileVersion.create({
       data: {
         fileId: input.fileId,
-        version: nextVersion,
+        version: input.version,
         storagePath: input.storagePath,
         size: input.size,
       },
@@ -53,7 +48,7 @@ export async function createReplacementFileVersion(input: {
     const file = await tx.gaiaFile.findFirstOrThrow({
       where: { id: input.fileId, userId: input.userId },
     });
-    return { file, nextVersion };
+    return { file, nextVersion: input.version };
   });
 }
 
@@ -63,6 +58,7 @@ export async function createRestoredFileVersion(input: {
   currentStoragePath: string;
   targetStoragePath: string;
   targetSize: number;
+  version: number;
 }) {
   return db.$transaction(async (tx) => {
     const claimed = await tx.gaiaFile.updateMany({
@@ -79,16 +75,10 @@ export async function createRestoredFileVersion(input: {
     });
     if (claimed.count !== 1) return null;
 
-    const latest = await tx.fileVersion.findFirst({
-      where: { fileId: input.fileId },
-      orderBy: { version: "desc" },
-      select: { version: true },
-    });
-    const nextVersion = (latest?.version ?? 0) + 1;
     await tx.fileVersion.create({
       data: {
         fileId: input.fileId,
-        version: nextVersion,
+        version: input.version,
         storagePath: input.targetStoragePath,
         size: input.targetSize,
       },
@@ -96,13 +86,13 @@ export async function createRestoredFileVersion(input: {
     const file = await tx.gaiaFile.findFirstOrThrow({
       where: { id: input.fileId, userId: input.userId },
     });
-    return { file, nextVersion };
+    return { file, nextVersion: input.version };
   });
 }
 
 export async function findOwnedFileVersion(userId: string, fileId: string, version: number) {
   return db.fileVersion.findFirst({
-    where: { fileId, version, file: { userId } },
+    where: { fileId, version },
   });
 }
 
