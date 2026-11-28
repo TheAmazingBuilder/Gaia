@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   getKnowledgeTimelineQuery,
 } from "@/modules/knowledge/services/timeline";
