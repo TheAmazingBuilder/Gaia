@@ -29,7 +29,11 @@ import type {
   GaiaLinkSuggestion,
 } from "@/modules/knowledge/types";
 import type { GaiaNoteRow } from "@/modules/notes/types";
-import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
+import type {
+  NoteFolderMappingRecord,
+  NoteRowInput,
+  NoteTagMappingRecord,
+} from "@/modules/notes/types/list";
 
 const noteNotFound = () => notFound("NOTE_NOT_FOUND", "Note not found.");
 
@@ -62,13 +66,25 @@ export async function deleteNoteRelation(
   });
 }
 
+type NoteRelationRecord = {
+  id: string;
+  fromNoteId: string;
+  toNoteId: string;
+  type: string;
+  createdAt: Date;
+};
+
 type NoteLinksDeps = {
-  findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
-  loadFolders: (userId: string) => Promise<NoteFolder[]>;
-  loadTags: (userId: string) => Promise<NoteTag[]>;
-  loadRelations: (userId: string) => Promise<NoteRelation[]>;
+  findActiveNote: (userId: string, noteId: string) => Promise<NoteRowInput | null>;
+  loadFolders: (userId: string) => Promise<NoteFolderMappingRecord[]>;
+  loadTags: (userId: string) => Promise<NoteTagMappingRecord[]>;
+  loadRelations: (userId: string) => Promise<NoteRelationRecord[]>;
   loadNoteTitles: (userId: string, ids: string[]) => Promise<Map<string, string>>;
-  toRow: (note: Note, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
+  toRow: (
+    note: NoteRowInput,
+    folders: NoteFolderMappingRecord[],
+    tags: NoteTagMappingRecord[],
+  ) => GaiaNoteRow;
   noteNotFound: () => Error;
 };
 
