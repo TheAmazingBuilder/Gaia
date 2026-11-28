@@ -183,7 +183,6 @@ import {
   notFound,
   validationError,
 } from "@/shared/errors/gaia-error";
-import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 export { GaiaError } from "@/shared/errors/gaia-error";
 
 const NOTE_NOT_FOUND = () => notFound("NOTE_NOT_FOUND", "Note not found.");
