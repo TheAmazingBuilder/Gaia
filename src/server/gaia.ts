@@ -158,7 +158,8 @@ import {
   textOfBlocks,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
-import { listRefs as listRefsRaw, type GaiaRefHit } from "@/lib/gaia/refs";
+export { listGaiaRefs } from "@/server/gaia/references";
+export type { GaiaRefHit } from "@/server/gaia/references";
 
 
 import { normalizeProperties } from "@/modules/notes/normalization";
@@ -371,15 +372,6 @@ export async function searchNotes(
 }
 
 /* ── Refs ────────────────────────────────────────────────────────────── */
-
-export async function listGaiaRefs(
-  userId: string,
-  q: string,
-  kind?: string,
-): Promise<{ refs: GaiaRefHit[] }> {
-  const refs = await listRefsRaw(userId, q, kind);
-  return { refs };
-}
 
 export async function listLinkedNotes(
   userId: string,
