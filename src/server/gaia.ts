@@ -8,12 +8,6 @@
  * comme un 404.
  */
 import { NextResponse } from "next/server";
-import {
-  gaiaNotePropertySchema,
-  noteCreateInputSchema,
-  noteUpdateInputSchema,
-  noteDuplicateInputSchema,
-} from "@/modules/notes/schemas";
 export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
 import type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaInboxItemDTO } from "@/modules/knowledge/types";
 export type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaCanvasItemDTO, GaiaInboxItemDTO } from "@/modules/knowledge/types";
