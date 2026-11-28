@@ -1,12 +1,9 @@
-import {
-  getNoteQuery,
-  type GetNoteDependencies,
-} from "@/modules/notes/services/details";
-import {
-  listNotesQuery,
-  type ListNotesDependencies,
-} from "@/modules/notes/services/list";
+import { getNoteQuery } from "@/modules/notes/services/details";
+import { listNotesQuery } from "@/modules/notes/services/list";
 import type { GaiaListQuery, GaiaNoteResponse, GaiaNoteRow } from "@/modules/notes/types";
+
+type ListNotesDependencies = Parameters<typeof listNotesQuery>[2];
+type GetNoteDependencies = Parameters<typeof getNoteQuery>[2];
 
 export async function listNotes(
   userId: string,
