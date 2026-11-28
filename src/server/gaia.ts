@@ -27,12 +27,12 @@ import {
   updateCanvas as updateCanvasAdapter,
 } from "@/server/gaia/canvas";
 import {
-  listInboxQuery,
-  createInboxItemCommand,
-  toggleInboxItemCommand,
-  deleteInboxItemCommand,
-  convertInboxItemCommand,
-} from "@/modules/knowledge/services/inbox";
+  convertInboxItem as convertInboxItemAdapter,
+  createInboxItem as createInboxItemAdapter,
+  deleteInboxItem as deleteInboxItemAdapter,
+  listInbox as listInboxAdapter,
+  toggleInboxItem as toggleInboxItemAdapter,
+} from "@/server/gaia/inbox";
 import {
   getOrCreateDailyNoteCommand,
   getOrCreateWeeklyNoteCommand,
@@ -579,14 +579,14 @@ const inboxDependencies = () => ({
 export async function listInbox(
   userId: string,
 ): Promise<{ open: GaiaInboxItemDTO[]; done: GaiaInboxItemDTO[] }> {
-  return listInboxQuery(userId);
+  return listInboxAdapter(userId);
 }
 
 export async function createInboxItem(
   userId: string,
   input: unknown,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  return createInboxItemCommand(userId, input, inboxDependencies());
+  return createInboxItemAdapter(userId, input, inboxDependencies());
 }
 
 export async function toggleInboxItem(
@@ -594,21 +594,21 @@ export async function toggleInboxItem(
   itemId: string,
   done: boolean,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  return toggleInboxItemCommand(userId, itemId, done, inboxDependencies());
+  return toggleInboxItemAdapter(userId, itemId, done, inboxDependencies());
 }
 
 export async function deleteInboxItem(
   userId: string,
   itemId: string,
 ): Promise<{ ok: true }> {
-  return deleteInboxItemCommand(userId, itemId, inboxDependencies());
+  return deleteInboxItemAdapter(userId, itemId, inboxDependencies());
 }
 
 export async function convertInboxItem(
   userId: string,
   itemId: string,
 ): Promise<{ note: GaiaNoteResponse["note"]; item: GaiaInboxItemDTO }> {
-  return convertInboxItemCommand(userId, itemId, inboxDependencies());
+  return convertInboxItemAdapter(userId, itemId, inboxDependencies());
 }
 
 // ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
