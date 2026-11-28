@@ -157,13 +157,6 @@ import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
 import { getVersionQuery, listVersionsQuery, restoreVersionCommand } from "@/modules/notes/services/versions";
 import {
-  getTodayWordsQuery,
-  getWritingSettingsQuery,
-  updateWritingSettingsCommand,
-  type GaiaTodayWords,
-  type GaiaWritingSettings,
-} from "@/modules/notes/services/writing";
-import {
   moveNoteToMasteryCommand,
   reviewNoteCommand,
   scheduleNoteCommand,
@@ -333,22 +326,8 @@ export async function updateNote(
 
 /* ── Module 1 — Objectifs d'écriture (E12) ─────────────────────────────── */
 
-export type { GaiaWritingSettings, GaiaTodayWords } from "@/modules/notes/services/writing";
-
-export async function getWritingSettings(userId: string): Promise<GaiaWritingSettings> {
-  return getWritingSettingsQuery(userId);
-}
-
-export async function updateWritingSettings(
-  userId: string,
-  input: unknown,
-): Promise<GaiaWritingSettings> {
-  return updateWritingSettingsCommand(userId, input);
-}
-
-export async function getTodayWords(userId: string): Promise<GaiaTodayWords> {
-  return getTodayWordsQuery(userId);
-}
+export type { GaiaWritingSettings, GaiaTodayWords } from "@/server/gaia/writing";
+export { getWritingSettings, updateWritingSettings, getTodayWords } from "@/server/gaia/writing";
 
 export async function trashNote(userId: string, noteId: string): Promise<{ ok: true }> {
   return trashNoteCommand(userId, noteId, { noteNotFound: NOTE_NOT_FOUND });
