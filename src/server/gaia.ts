@@ -168,7 +168,7 @@ import {
   listTagsQuery,
   updateTagCommand,
 } from "@/modules/notes/services/tags";
-import { listNotesQuery, loadBlocksFor, NOTE_LIST_SELECT } from "@/modules/notes/services/list";
+import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery } from "@/modules/notes/services/list";
 import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
@@ -718,8 +718,7 @@ export async function getOverview(userId: string): Promise<GaiaOverviewResponse>
   return getOverviewQuery(userId, {
     loadFolders,
     loadTags,
-    loadNotes: (ownerId) =>
-      db.note.findMany({ where: { userId: ownerId }, select: NOTE_LIST_SELECT }),
+    loadNotes: loadOverviewNotesQuery,
     loadBlocksFor,
     toRow,
     parseTagIds: parseJsonStringArray,
