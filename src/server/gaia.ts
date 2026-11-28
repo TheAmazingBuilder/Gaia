@@ -141,8 +141,9 @@ import { loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/m
 import {
   getNote as getNoteAdapter,
   listNotes as listNotesAdapter,
+  searchNotes as searchNotesAdapter,
 } from "@/server/gaia/notes-read";
-import { searchNotesQuery } from "@/modules/notes/services/search";
+
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
 import { restoreVersionCommand } from "@/modules/notes/services/versions";
@@ -492,7 +493,7 @@ export async function searchNotes(
   userId: string,
   q: string,
 ): Promise<{ results: (GaiaNoteRow & { snippet: string })[]; total: number }> {
-  return searchNotesQuery(userId, q, {
+  return searchNotesAdapter(userId, q, {
     loadFolders,
     loadTags,
     loadNotes: loadSearchNotesQuery,
