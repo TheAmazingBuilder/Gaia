@@ -1,3 +1,5 @@
+import "server-only";
+
 import { listRefs, type GaiaRefHit } from "@/lib/gaia/refs";
 
 export type { GaiaRefHit };
