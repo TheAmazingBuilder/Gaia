@@ -73,9 +73,9 @@ export type {
 } from "@/modules/files/types";
 import { z } from "zod";
 import { fileAnnotationInputSchema, fileTextInputSchema, fileUpdateInputSchema } from "@/modules/files/schemas";
-import { fileToDTO } from "@/modules/files/mappers";
 import {
   createFileAnnotationCommand,
+  createFileCommand,
   deleteFileAnnotationCommand,
   saveFileTextCommand,
   updateFileCommand,
@@ -216,7 +216,6 @@ import {
   tokenize,
   weekStart,
 } from "@/lib/gaia/knowledge";
-import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
 import {
   downloadFromStorage,
   getStorageClient,
@@ -1040,44 +1039,19 @@ export async function createFileRecord(
   userId: string,
   input: { name: string; mimeType: string; size: number; folderId?: string | null; buffer: Buffer },
 ): Promise<{ file: GaiaFileDTO }> {
-  if (!isStorageConfigured()) throw STORAGE_NOT_CONFIGURED();
-  const client = getStorageClient();
-  if (!client) throw STORAGE_NOT_CONFIGURED();
-  const name = input.name.trim().slice(0, 200);
-  if (name === "") throw validationError("File name is required.");
-  if (input.size <= 0 || input.size > GAIA_MAX_FILE_BYTES) {
-    throw validationError("File size is out of bounds.");
-  }
-  let folderId: string | null = null;
-  if (input.folderId) {
-    const folder = await db.noteFolder.findFirst({ where: { userId, id: input.folderId } });
-    if (!folder) throw FOLDER_NOT_FOUND();
-    folderId = folder.id;
-  }
-  const id = `cm${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const path = storagePathFor(userId, id, 1, name);
-  const uploaded = await uploadToStorage(client, path, input.buffer, input.mimeType);
-  if (!uploaded.ok) {
-    throw new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, uploaded.error ?? "Upload failed.");
-  }
-  try {
-    const row = await db.gaiaFile.create({
-      data: {
-        id,
-        userId,
-        name,
-        mimeType: input.mimeType.slice(0, 200),
-        size: input.size,
-        storagePath: path,
-        folderId,
-        versions: { create: { version: 1, storagePath: path, size: input.size } },
-      },
-    });
-    return { file: fileToDTO(row, folderId ? (await loadFolders(userId)).find((f) => f.id === folderId)?.name ?? null : null, 1, 0) };
-  } catch (error) {
-    await removeFromStorage(client, [path]);
-    throw error;
-  }
+  return createFileCommand(userId, input, {
+    folderNotFound: FOLDER_NOT_FOUND,
+    validationError,
+    storageNotConfigured: STORAGE_NOT_CONFIGURED,
+    storageUploadFailed: (message) =>
+      new GaiaError("ServiceUnavailable", "STORAGE_UPLOAD_FAILED", 503, message),
+  }, {
+    isConfigured: isStorageConfigured,
+    getClient: getStorageClient,
+    pathFor: storagePathFor,
+    upload: uploadToStorage,
+    remove: removeFromStorage,
+  });
 }
 
 /** F01 — renommer / déplacer un fichier (métadonnées uniquement). */
