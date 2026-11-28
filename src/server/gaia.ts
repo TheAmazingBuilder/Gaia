@@ -17,7 +17,6 @@ import {
 export { gaiaNotePropertySchema } from "@/modules/notes/schemas";
 import type { GaiaSmartCollectionDTO, GaiaCanvasDTO } from "@/modules/knowledge/types";
 export type { GaiaSmartCollectionDTO, GaiaCanvasDTO, GaiaCanvasItemDTO } from "@/modules/knowledge/types";
-export type { GaiaSmartCollectionDTO } from "@/modules/knowledge/types";
 import { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
 export { gaiaCollectionCriteriaSchema } from "@/modules/knowledge/schemas";
 import {
