@@ -11,7 +11,7 @@
  * Toutes les fonctions sont pures et immuables (elles retournent un nouvel
  * arbre). Aucune dépendance React : utilisables côté client et serveur.
  */
-import type { GaiaBlock } from "./content";
+import type { GaiaBlock } from "./block-schema";
 import { stripInlineMarkers } from "./inline";
 
 export type BlockListId = string;
