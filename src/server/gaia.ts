@@ -110,7 +110,7 @@ import {
   listNoteRelations as listNoteRelationsAdapter,
 } from "@/server/gaia/knowledge-navigation";
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
-import { parseJsonProperties, tagNamesOf, toRow, noteResponse } from "@/modules/notes/mappers";
+import { parseJsonProperties, tagNamesOf, toDTO, toRow, noteResponse } from "@/modules/notes/mappers";
 import {
   listUserRelations as loadRelationsRaw,
   loadActiveNoteTitles as loadNoteTitlesRaw,
