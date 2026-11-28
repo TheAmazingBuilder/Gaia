@@ -228,8 +228,8 @@ export function newCommentId(): string {
 // ── Parcours récursif ──────────────────────────────────────────────────────
 // flattenBlocks + extractHeadings vivent dans ./tree.ts (client-safe) ;
 // content.ts les importe (usage local) et les ré-exporte pour le serveur.
-import { extractHeadings, flattenBlocks } from "./tree";
-export { extractHeadings, flattenBlocks };
+import { extractHeadings } from "./tree";
+export { extractHeadings, flattenBlocks } from "./tree";
 
 // ── Normalisation / relecture ──────────────────────────────────────────────
 
