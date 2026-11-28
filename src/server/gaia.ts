@@ -114,10 +114,6 @@ import {
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
 import { parseJsonProperties, toDTO, toRow, noteResponse } from "@/modules/notes/mappers";
 import {
-  listUserRelations as loadRelationsRaw,
-  loadActiveNoteTitles as loadNoteTitlesRaw,
-} from "@/modules/knowledge/repositories/relations";
-import {
   purgeNote,
   restoreNote,
   trashNote,
@@ -157,10 +153,6 @@ export { listGaiaRefs } from "@/server/gaia/references";
 export type { GaiaRefHit } from "@/server/gaia/references";
 
 
-import { normalizeProperties } from "@/modules/notes/normalization";
-import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-import { assertSafeImageSources } from "@/modules/notes/content-validation";
-import { createEmptyParagraphBlock } from "@/modules/notes/services/block-copy";
 
 
 /* ── Erreurs ─────────────────────────────────────────────────────────── */
@@ -356,9 +348,7 @@ export async function listNoteRelations(
   userId: string,
   noteId: string,
 ): Promise<{ relations: GaiaNoteRelationDTO[] }> {
-  return listNoteRelationsAdapter(userId, noteId, {
-    noteNotFound: NOTE_NOT_FOUND,
-  });
+  return listNoteRelationsAdapter(userId, noteId);
 }
 
 export async function createNoteRelation(
@@ -366,11 +356,7 @@ export async function createNoteRelation(
   noteId: string,
   input: unknown,
 ): Promise<{ relation: GaiaNoteRelationDTO }> {
-  return createNoteRelationAdapter(userId, noteId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    conflictError,
-  });
+  return createNoteRelationAdapter(userId, noteId, input);
 }
 
 export async function deleteNoteRelation(
@@ -378,9 +364,7 @@ export async function deleteNoteRelation(
   noteId: string,
   relationId: string,
 ): Promise<{ ok: true }> {
-  return deleteNoteRelationAdapter(userId, noteId, relationId, {
-    relationNotFound: () => notFound("RELATION_NOT_FOUND", "Relation not found."),
-  });
+  return deleteNoteRelationAdapter(userId, noteId, relationId);
 }
 
 // ── K02 / K03 / K04 — Backlinks// ── K02 / K03 / K04 — Backlinks, mentions non liées, liens sortants ───
@@ -389,15 +373,7 @@ export async function getNoteLinks(
   userId: string,
   noteId: string,
 ): Promise<GaiaNoteLinksResponse> {
-  return getNoteLinksAdapter(userId, noteId, {
-    findActiveNote,
-    loadFolders,
-    loadTags,
-    loadRelations: loadRelationsRaw,
-    loadNoteTitles: loadNoteTitlesRaw,
-    toRow,
-    noteNotFound: NOTE_NOT_FOUND,
-  });
+  return getNoteLinksAdapter(userId, noteId);
 }
 
 // ── K14 — Suggestions de liens// ── K14 — Suggestions de liens ────────────────────────────────────────
@@ -406,11 +382,7 @@ export async function getLinkSuggestions(
   userId: string,
   noteId: string,
 ): Promise<{ suggestions: GaiaLinkSuggestion[] }> {
-  return getLinkSuggestionsAdapter(userId, noteId, {
-    findActiveNote,
-    getNoteLinks,
-    noteNotFound: NOTE_NOT_FOUND,
-  });
+  return getLinkSuggestionsAdapter(userId, noteId);
 }
 
 // ── K15 — Notes orphelines// ── K15 — Notes orphelines ─────────────────────────────────────────────
@@ -418,12 +390,7 @@ export async function getLinkSuggestions(
 export async function getOrphanNotes(
   userId: string,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  return getOrphanNotesAdapter(userId, {
-    loadFolders,
-    loadTags,
-    loadRelations: loadRelationsRaw,
-    toRow,
-  });
+  return getOrphanNotesAdapter(userId);
 }
 
 // ── K16 — Timeline des connaissances// ── K16 — Timeline des connaissances ──────────────────────────────────
