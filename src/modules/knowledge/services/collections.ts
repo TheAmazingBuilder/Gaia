@@ -138,7 +138,7 @@ export async function updateCollectionCommand(
   input: unknown,
   deps: CollectionDependencies,
 ): Promise<{ collection: GaiaSmartCollectionDTO }> {
-  const parsed = parseInput(collectionInputSchema, input, deps.validationError);
+  const parsed = parseOrThrow(collectionInputSchema, input, deps.validationError);
   const row = await db.smartCollection.findFirst({
     where: { userId, id: collectionId },
   });
