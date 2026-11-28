@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 import { newBlockId, type GaiaBlock } from "@/lib/gaia/content";
 import { dailyNoteTitle, weeklyNoteTitle, weekStart } from "@/lib/gaia/knowledge";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
