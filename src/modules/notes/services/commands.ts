@@ -1,4 +1,4 @@
-import { db } from "@/shared/database/client";
+import { createNoteRecord, findUserFolder } from "@/modules/notes/repositories/notes";
 import {
   noteCreateInputSchema,
   noteDuplicateInputSchema,
@@ -36,10 +36,7 @@ export async function createNoteCommand(
 
   const folderId = parsed.folderId ?? null;
   if (folderId !== null) {
-    const folder = await db.noteFolder.findFirst({
-      where: { userId, id: folderId },
-      select: { id: true },
-    });
+    const folder = await findUserFolder(userId, folderId);
     if (!folder) throw deps.folderNotFound();
   }
 
@@ -58,8 +55,7 @@ export async function createNoteCommand(
   deps.assertSafeImageSources(blocks);
 
   const now = new Date();
-  const note = await db.note.create({
-    data: {
+  const note = await createNoteRecord({
       userId,
       title: parsed.title?.trim() ?? "",
       icon: template?.icon ?? "📝",
@@ -102,8 +98,7 @@ export async function duplicateNoteCommand(
   const title = parsed.title?.trim() ??
     (source.title === "" ? "Untitled note (copy)" : `${source.title} (copie)`);
   const now = new Date();
-  const copy = await db.note.create({
-    data: {
+  const copy = await createNoteRecord({
       userId,
       title,
       icon: source.icon,
