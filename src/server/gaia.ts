@@ -45,7 +45,6 @@ import {
   getOrCreateWeeklyNoteCommand,
 } from "@/modules/knowledge/services/periodic-notes";
 import type {
-  GaiaNoteDTO,
   GaiaNoteProperty,
   GaiaNotePropertyType,
   GaiaNoteResponse,
@@ -149,6 +148,7 @@ import { getOverviewQuery } from "@/modules/knowledge/services/overview";
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
 import { getOrphanNotesQuery } from "@/modules/knowledge/services/orphans";
+import { parseJsonProperties, tagNamesOf, toRow, noteResponse } from "@/modules/notes/mappers";
 import {
   listUserRelations as loadRelations,
   loadActiveNoteTitles as loadNoteTitles,
@@ -199,8 +199,6 @@ import {
   scheduleNoteCommand,
 } from "@/modules/notes/services/review";
 import {
-  countOpenTodos,
-  countWords,
   excerptOf,
   flattenBlocks,
   gaiaBlocksInputSchema,
@@ -217,7 +215,7 @@ import {
   type GaiaBlock,
   type GaiaRefKind,
 } from "@/lib/gaia/content";
-import { listRefs as listRefsRaw, resolveNoteRefs, type GaiaRefHit } from "@/lib/gaia/refs";
+import { listRefs as listRefsRaw, type GaiaRefHit } from "@/lib/gaia/refs";
 import {
   isMasteryLevel,
   isTimePeriod,
@@ -477,101 +475,6 @@ async function loadTags(userId: string): Promise<NoteTag[]> {
   return db.noteTag.findMany({ where: { userId } });
 }
 
-function folderNameOf(folderId: string | null, folders: NoteFolder[]): string | null {
-  if (folderId === null) return null;
-  return folders.find((f) => f.id === folderId)?.name ?? null;
-}
-
-function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
-  return tagIds
-    .map((tagId) => tags.find((t) => t.id === tagId)?.name ?? null)
-    .filter((name): name is string => name !== null);
-}
-
-/**
- * Narrow note select for list/overview queries (Phase 2 perf, item 8):
- * every scalar EXCEPT `blocks` — the row's excerpt/wordCount/blockCount/
- * refCount/todoOpen come from a bounded second fetch for the displayed
- * rows only. Full rows (with blocks) still load for single-note reads.
- */
-function toRow(note: NoteRowInput, folders: NoteFolder[], tags: NoteTag[]): GaiaNoteRow {
-  const blocks = parseJsonBlocks(note.blocks);
-  const tagIds = parseJsonStringArray(note.tagIds);
-  return {
-    id: note.id,
-    title: note.title,
-    icon: note.icon,
-    folderId: note.folderId,
-    folderName: folderNameOf(note.folderId, folders),
-    tagIds,
-    tagNames: tagNamesOf(tagIds, tags),
-    favorite: note.favorite,
-    templateId: note.templateId,
-    excerpt: excerptOf(blocks),
-    wordCount: countWords(blocks),
-    blockCount: flattenBlocks(blocks).length,
-    refCount: flattenBlocks(blocks).filter((b) => b.type === "ref").length,
-    todoOpen: countOpenTodos(blocks),
-    cover: note.cover ?? null,
-    wordGoal: note.wordGoal ?? null,
-    properties: parseJsonProperties(note.properties),
-    createdAt: note.createdAt.toISOString(),
-    updatedAt: note.updatedAt.toISOString(),
-    lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
-    deletedAt: note.deletedAt?.toISOString() ?? null,
-    // Phase 1 — Memory. Older rows (created before the feature, or
-    // written by a client that predates it) fall back to "fragile".
-    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
-    lastReviewedAt: note.lastReviewedAt?.toISOString() ?? null,
-    nextReviewAt: note.nextReviewAt?.toISOString() ?? null,
-    reviewCount: note.reviewCount,
-    easeFactor: note.easeFactor,
-    intervalDays: note.intervalDays,
-  };
-}
-
-function toDTO(note: Note): GaiaNoteDTO {
-  return {
-    id: note.id,
-    userId: note.userId,
-    title: note.title,
-    icon: note.icon,
-    folderId: note.folderId,
-    tagIds: parseJsonStringArray(note.tagIds),
-    favorite: note.favorite,
-    templateId: note.templateId,
-    blocks: parseJsonBlocks(note.blocks),
-    cover: note.cover ?? null,
-    wordGoal: note.wordGoal ?? null,
-    properties: parseJsonProperties(note.properties),
-    createdAt: note.createdAt.toISOString(),
-    updatedAt: note.updatedAt.toISOString(),
-    lastViewedAt: note.lastViewedAt?.toISOString() ?? null,
-    deletedAt: note.deletedAt?.toISOString() ?? null,
-    // Phase 1 — Memory (same fallback as toRow).
-    mastery: isMasteryLevel(note.mastery) ? note.mastery : "fragile",
-    lastReviewedAt: note.lastReviewedAt?.toISOString() ?? null,
-    nextReviewAt: note.nextReviewAt?.toISOString() ?? null,
-    reviewCount: note.reviewCount,
-    easeFactor: note.easeFactor,
-    intervalDays: note.intervalDays,
-  };
-}
-
-async function noteResponse(
-  userId: string,
-  note: Note,
-  folders: NoteFolder[],
-  tags: NoteTag[],
-): Promise<GaiaNoteResponse> {
-  const dto = toDTO(note);
-  dto.blocks = await resolveNoteRefs(userId, dto.blocks);
-  return {
-    note: dto,
-    folderName: folderNameOf(note.folderId, folders),
-    tagNames: tagNamesOf(dto.tagIds, tags),
-  };
-}
 
 async function findActiveNote(userId: string, noteId: string): Promise<Note | null> {
   return db.note.findFirst({ where: { userId, id: noteId, deletedAt: null } });
