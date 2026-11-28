@@ -112,9 +112,8 @@ import {
   listNoteRelations as listNoteRelationsAdapter,
 } from "@/server/gaia/knowledge-navigation";
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
-import { parseJsonProperties, toDTO, noteResponse } from "@/modules/notes/mappers";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-import { parseJsonProperties, toDTO, toRow, noteResponse } from "@/modules/notes/mappers";
+import { parseJsonProperties, toDTO, noteResponse } from "@/modules/notes/mappers";
 import {
   purgeNote,
   restoreNote,
