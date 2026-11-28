@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   createNoteRelationCommand,
   deleteNoteRelationCommand,
@@ -6,6 +8,21 @@ import {
 import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { getLinkSuggestionsQuery } from "@/modules/knowledge/services/suggestions";
 import { getOrphanNotesQuery } from "@/modules/knowledge/services/orphans";
+import {
+  findActiveNote,
+  loadFolders,
+  loadTags,
+} from "@/modules/notes/repositories/notes";
+import { toRow } from "@/modules/notes/mappers";
+import {
+  listUserRelations as loadRelations,
+  loadActiveNoteTitles as loadNoteTitles,
+} from "@/modules/knowledge/repositories/relations";
+import {
+  conflictError,
+  notFound,
+  validationError,
+} from "@/shared/errors/gaia-error";
 import type {
   GaiaNoteRelationDTO,
   GaiaNoteLinksResponse,
@@ -14,12 +31,36 @@ import type {
 import type { GaiaNoteRow } from "@/modules/notes/types";
 import type { Note, NoteFolder, NoteRelation, NoteTag } from "@prisma/client";
 
-type RelationDeps = {
-  validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
-  noteNotFound: () => Error;
-  conflictError: (code: string, message: string) => Error;
-  relationNotFound: () => Error;
-};
+const noteNotFound = () => notFound("NOTE_NOT_FOUND", "Note not found.");
+
+export async function listNoteRelations(
+  userId: string,
+  noteId: string,
+): Promise<{ relations: GaiaNoteRelationDTO[] }> {
+  return listNoteRelationsQuery(userId, noteId, { noteNotFound });
+}
+
+export async function createNoteRelation(
+  userId: string,
+  noteId: string,
+  input: unknown,
+): Promise<{ relation: GaiaNoteRelationDTO }> {
+  return createNoteRelationCommand(userId, noteId, input, {
+    validationError,
+    noteNotFound,
+    conflictError,
+  });
+}
+
+export async function deleteNoteRelation(
+  userId: string,
+  noteId: string,
+  relationId: string,
+): Promise<{ ok: true }> {
+  return deleteNoteRelationCommand(userId, noteId, relationId, {
+    relationNotFound: () => notFound("RELATION_NOT_FOUND", "Relation not found."),
+  });
+}
 
 type NoteLinksDeps = {
   findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
@@ -31,65 +72,41 @@ type NoteLinksDeps = {
   noteNotFound: () => Error;
 };
 
-type OrphanDeps = {
-  loadFolders: (userId: string) => Promise<NoteFolder[]>;
-  loadTags: (userId: string) => Promise<NoteTag[]>;
-  loadRelations: (userId: string) => Promise<NoteRelation[]>;
-  toRow: (note: Note, folders: NoteFolder[], tags: NoteTag[]) => GaiaNoteRow;
+const noteLinksDependencies: NoteLinksDeps = {
+  findActiveNote,
+  loadFolders,
+  loadTags,
+  loadRelations,
+  loadNoteTitles,
+  toRow,
+  noteNotFound,
 };
-
-export async function listNoteRelations(
-  userId: string,
-  noteId: string,
-  deps: Pick<RelationDeps, "noteNotFound">,
-): Promise<{ relations: GaiaNoteRelationDTO[] }> {
-  return listNoteRelationsQuery(userId, noteId, deps);
-}
-
-export async function createNoteRelation(
-  userId: string,
-  noteId: string,
-  input: unknown,
-  deps: Pick<RelationDeps, "validationError" | "noteNotFound" | "conflictError">,
-): Promise<{ relation: GaiaNoteRelationDTO }> {
-  return createNoteRelationCommand(userId, noteId, input, deps);
-}
-
-export async function deleteNoteRelation(
-  userId: string,
-  noteId: string,
-  relationId: string,
-  deps: Pick<RelationDeps, "relationNotFound">,
-): Promise<{ ok: true }> {
-  return deleteNoteRelationCommand(userId, noteId, relationId, deps);
-}
 
 export async function getNoteLinks(
   userId: string,
   noteId: string,
-  deps: NoteLinksDeps,
 ): Promise<GaiaNoteLinksResponse> {
-  return getNoteLinksQuery(userId, noteId, deps);
+  return getNoteLinksQuery(userId, noteId, noteLinksDependencies);
 }
 
 export async function getLinkSuggestions(
   userId: string,
   noteId: string,
-  deps: {
-    findActiveNote: (userId: string, noteId: string) => Promise<Note | null>;
-    getNoteLinks: (userId: string, noteId: string) => Promise<{
-      outgoing: Array<{ id: string }>;
-      backlinks: Array<{ id: string }>;
-    }>;
-    noteNotFound: () => Error;
-  },
 ): Promise<{ suggestions: GaiaLinkSuggestion[] }> {
-  return getLinkSuggestionsQuery(userId, noteId, deps);
+  return getLinkSuggestionsQuery(userId, noteId, {
+    findActiveNote,
+    getNoteLinks,
+    noteNotFound,
+  });
 }
 
 export async function getOrphanNotes(
   userId: string,
-  deps: OrphanDeps,
 ): Promise<{ notes: GaiaNoteRow[]; total: number }> {
-  return getOrphanNotesQuery(userId, deps);
+  return getOrphanNotesQuery(userId, {
+    loadFolders,
+    loadTags,
+    loadRelations,
+    toRow,
+  });
 }
