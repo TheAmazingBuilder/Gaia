@@ -243,3 +243,16 @@ export async function loadBlocksFor(noteIds: string[]): Promise<Map<string, stri
   });
   return new Map(rows.map((row) => [row.id, row.blocks]));
 }
+
+/** Resolve a folder only when it belongs to the requesting user. */
+export function findUserFolder(userId: string, folderId: string) {
+  return db.noteFolder.findFirst({
+    where: { userId, id: folderId },
+    select: { id: true },
+  });
+}
+
+/** Create a note from domain-prepared data. */
+export function createNoteRecord(data: Prisma.NoteUncheckedCreateInput): Promise<Note> {
+  return db.note.create({ data });
+}
