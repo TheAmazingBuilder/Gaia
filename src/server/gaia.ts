@@ -112,8 +112,8 @@ import {
   listNoteRelations as listNoteRelationsAdapter,
 } from "@/server/gaia/knowledge-navigation";
 import { getOverview as getOverviewAdapter } from "@/server/gaia/overview";
-import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
-import { toDTO, noteResponse } from "@/modules/notes/mappers";
+import { loadFolders, loadTags } from "@/modules/notes/repositories/notes";
+import { noteResponse } from "@/modules/notes/mappers";
 import {
   purgeNote,
   restoreNote,
@@ -158,11 +158,7 @@ export type { GaiaRefHit } from "@/server/gaia/references";
 
 /* ── Erreurs ─────────────────────────────────────────────────────────── */
 
-import {
-  conflictError,
-  notFound,
-  validationError,
-} from "@/shared/errors/gaia-error";
+import { notFound } from "@/shared/errors/gaia-error";
 export { GaiaError } from "@/shared/errors/gaia-error";
 
 
@@ -473,16 +469,6 @@ export async function deleteCanvas(
 
 // ── K12 — Inbox ───────────────────────────────────────────────────────
 
-const inboxDependencies = () => ({
-  validationError,
-  inboxItemNotFound: () => notFound("INBOX_ITEM_NOT_FOUND", "Inbox item not found."),
-  findActiveNote,
-  loadFolders,
-  loadTags,
-  toDTO,
-  createNote,
-});
-
 export async function listInbox(
   userId: string,
 ): Promise<{ open: GaiaInboxItemDTO[]; done: GaiaInboxItemDTO[] }> {
@@ -493,7 +479,7 @@ export async function createInboxItem(
   userId: string,
   input: unknown,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  return createInboxItemAdapter(userId, input, inboxDependencies());
+  return createInboxItemAdapter(userId, input);
 }
 
 export async function toggleInboxItem(
@@ -501,21 +487,21 @@ export async function toggleInboxItem(
   itemId: string,
   done: boolean,
 ): Promise<{ item: GaiaInboxItemDTO }> {
-  return toggleInboxItemAdapter(userId, itemId, done, inboxDependencies());
+  return toggleInboxItemAdapter(userId, itemId, done);
 }
 
 export async function deleteInboxItem(
   userId: string,
   itemId: string,
 ): Promise<{ ok: true }> {
-  return deleteInboxItemAdapter(userId, itemId, inboxDependencies());
+  return deleteInboxItemAdapter(userId, itemId);
 }
 
 export async function convertInboxItem(
   userId: string,
   itemId: string,
 ): Promise<{ note: GaiaNoteResponse["note"]; item: GaiaInboxItemDTO }> {
-  return convertInboxItemAdapter(userId, itemId, inboxDependencies());
+  return convertInboxItemAdapter(userId, itemId);
 }
 
 // ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
