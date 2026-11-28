@@ -1,4 +1,4 @@
-import { db } from "@/lib/db";
+import { db } from "@/shared/database/client";
 
 type NoteLifecycleErrors = {
   noteNotFound: () => Error;
