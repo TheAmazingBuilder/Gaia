@@ -40,6 +40,10 @@ import {
   deleteInboxItemCommand,
   convertInboxItemCommand,
 } from "@/modules/knowledge/services/inbox";
+import {
+  getOrCreateDailyNoteCommand,
+  getOrCreateWeeklyNoteCommand,
+} from "@/modules/knowledge/services/periodic-notes";
 import type {
   GaiaNoteDTO,
   GaiaNoteProperty,
@@ -211,11 +215,9 @@ import {
   versionsBeyondCap,
 } from "@/lib/gaia/versioning";
 import {
-  dailyNoteTitle,
   isDescendantOf,
   suggestLinks,
   tokenize,
-  weeklyNoteTitle,
   weekStart,
 } from "@/lib/gaia/knowledge";
 import { GAIA_MAX_FILE_BYTES } from "@/lib/gaia/files";
@@ -1721,92 +1723,26 @@ export async function convertInboxItem(
 
 // ── K10 / K11 — Notes quotidiennes et hebdomadaires ───────────────────
 
-async function findOrCreateFolder(userId: string, name: string): Promise<NoteFolder> {
-  const existing = await db.noteFolder.findFirst({ where: { userId, name } });
-  if (existing) return existing;
-  return db.noteFolder.create({ data: { userId, name, parentId: null } });
-}
-
 export async function getOrCreateDailyNote(
   userId: string,
 ): Promise<GaiaNoteResponse> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
+  return getOrCreateDailyNoteCommand(userId, {
+    loadFolders,
+    loadTags,
+    noteResponse,
+    createNote,
   });
-  const tz = user?.timezone ?? "UTC";
-  const now = new Date();
-  const title = dailyNoteTitle(now, tz);
-  const folder = await findOrCreateFolder(userId, "Daily Notes");
-  const existing = await db.note.findFirst({
-    where: { userId, folderId: folder.id, title, deletedAt: null },
-  });
-  if (existing) {
-    const touched = await db.note.update({
-      where: { id: existing.id },
-      data: { lastViewedAt: new Date() },
-    });
-    const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-    return noteResponse(userId, touched, folders, tags);
-  }
-  const longDate = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(now);
-  const blocks: GaiaBlock[] = [
-    { id: newBlockId(), type: "h1", text: longDate },
-    { id: newBlockId(), type: "h2", text: "Tasks" },
-    { id: newBlockId(), type: "todo", text: "" },
-    { id: newBlockId(), type: "h2", text: "Notes" },
-    { id: newBlockId(), type: "paragraph", text: "" },
-  ];
-  return createNote(userId, { title, folderId: folder.id, blocks });
 }
 
 export async function getOrCreateWeeklyNote(
   userId: string,
 ): Promise<GaiaNoteResponse> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { timezone: true },
+  return getOrCreateWeeklyNoteCommand(userId, {
+    loadFolders,
+    loadTags,
+    noteResponse,
+    createNote,
   });
-  const tz = user?.timezone ?? "UTC";
-  const now = new Date();
-  const title = weeklyNoteTitle(now);
-  const folder = await findOrCreateFolder(userId, "Weekly Notes");
-  const existing = await db.note.findFirst({
-    where: { userId, folderId: folder.id, title, deletedAt: null },
-  });
-  if (existing) {
-    const touched = await db.note.update({
-      where: { id: existing.id },
-      data: { lastViewedAt: new Date() },
-    });
-    const [folders, tags] = await Promise.all([loadFolders(userId), loadTags(userId)]);
-    return noteResponse(userId, touched, folders, tags);
-  }
-  const monday = weekStart(now);
-  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    month: "short",
-    day: "numeric",
-  });
-  const range = `${fmt.format(monday)} – ${fmt.format(sunday)}, ${monday.getFullYear()}`;
-  const blocks: GaiaBlock[] = [
-    { id: newBlockId(), type: "h1", text: title },
-    { id: newBlockId(), type: "paragraph", text: range },
-    { id: newBlockId(), type: "h2", text: "Goals" },
-    { id: newBlockId(), type: "todo", text: "" },
-    { id: newBlockId(), type: "h2", text: "Review" },
-    { id: newBlockId(), type: "paragraph", text: "" },
-    { id: newBlockId(), type: "h2", text: "Notes" },
-    { id: newBlockId(), type: "paragraph", text: "" },
-  ];
-  return createNote(userId, { title, folderId: folder.id, blocks });
 }
 
 // ── Module 3 — File & Document Management (F01–F15) ─────────────────────
