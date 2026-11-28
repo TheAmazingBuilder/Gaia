@@ -1,4 +1,8 @@
-import type { Note, NoteFolder, NoteTag } from "@prisma/client";
+import type { Note } from "@prisma/client";
+import type {
+  NoteFolderMappingRecord,
+  NoteTagMappingRecord,
+} from "@/modules/notes/types/list";
 import {
   countOpenTodos,
   countWords,
@@ -39,12 +43,12 @@ export function parseJsonProperties(raw: string | null | undefined): GaiaNotePro
   }
 }
 
-function folderNameOf(folderId: string | null, folders: NoteFolder[]): string | null {
+function folderNameOf(folderId: string | null, folders: NoteFolderMappingRecord[]): string | null {
   if (folderId === null) return null;
   return folders.find((folder) => folder.id === folderId)?.name ?? null;
 }
 
-export function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
+export function tagNamesOf(tagIds: string[], tags: NoteTagMappingRecord[]): string[] {
   return tagIds
     .map((tagId) => tags.find((tag) => tag.id === tagId)?.name ?? null)
     .filter((name): name is string => name !== null);
@@ -52,8 +56,8 @@ export function tagNamesOf(tagIds: string[], tags: NoteTag[]): string[] {
 
 export function toRow(
   note: NoteMappingRow,
-  folders: NoteFolder[],
-  tags: NoteTag[],
+  folders: NoteFolderMappingRecord[],
+  tags: NoteTagMappingRecord[],
 ): GaiaNoteRow {
   const blocks = parseJsonBlocks(note.blocks);
   const tagIds = parseJsonStringArray(note.tagIds);
@@ -118,8 +122,8 @@ export function toDTO(note: Note): GaiaNoteDTO {
 export async function noteResponse(
   userId: string,
   note: Note,
-  folders: NoteFolder[],
-  tags: NoteTag[],
+  folders: NoteFolderMappingRecord[],
+  tags: NoteTagMappingRecord[],
 ): Promise<GaiaNoteResponse> {
   const dto = toDTO(note);
   dto.blocks = await resolveNoteRefs(userId, dto.blocks);
