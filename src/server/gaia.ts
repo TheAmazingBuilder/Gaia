@@ -168,7 +168,7 @@ import {
   listTagsQuery,
   updateTagCommand,
 } from "@/modules/notes/services/tags";
-import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery } from "@/modules/notes/services/list";
+import { listNotesQuery, loadBlocksFor, loadOverviewNotesQuery, loadSearchNotesQuery } from "@/modules/notes/services/list";
 import { searchNotesQuery } from "@/modules/notes/services/search";
 import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
@@ -735,8 +735,7 @@ export async function searchNotes(
   return searchNotesQuery(userId, q, {
     loadFolders,
     loadTags,
-    loadNotes: (ownerId) =>
-      db.note.findMany({ where: { userId: ownerId, deletedAt: null } }),
+    loadNotes: loadSearchNotesQuery,
     parseBlocks: parseJsonBlocks,
     parseTagIds: parseJsonStringArray,
     textOfBlocks,
