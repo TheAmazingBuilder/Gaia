@@ -1,4 +1,9 @@
-import { db } from "@/shared/database/client";
+import {
+  findActiveNote,
+  findNoteVersion,
+  loadNoteVersions,
+  restoreNoteVersion,
+} from "@/modules/notes/repositories/notes";
 import { countWords, parseJsonBlocks } from "@/lib/gaia/content";
 import { sortVersionsNewestFirst } from "@/lib/gaia/versioning";
 import type {
@@ -21,7 +26,7 @@ export async function listVersionsQuery(
   userId: string,
   noteId: string,
 ): Promise<{ versions: GaiaVersionSummary[] }> {
-  const versions = await db.noteVersion.findMany({ where: { userId, noteId } });
+  const versions = await loadNoteVersions(userId, noteId);
   const sorted = sortVersionsNewestFirst(versions);
   return {
     versions: sorted.map((version) => ({
@@ -40,9 +45,7 @@ export async function getVersionQuery(
   versionId: string,
   versionNotFound: () => Error,
 ): Promise<{ version: GaiaVersionDetail }> {
-  const version = await db.noteVersion.findFirst({
-    where: { userId, noteId, id: versionId },
-  });
+  const version = await findNoteVersion(userId, noteId, versionId);
   if (!version) throw versionNotFound();
   return {
     version: {
@@ -61,26 +64,19 @@ export async function restoreVersionCommand(
   versionId: string,
   deps: VersionDependencies,
 ): Promise<GaiaNoteResponse> {
-  const note = await db.note.findFirst({
-    where: { userId, id: noteId, deletedAt: null },
-  });
+  const note = await findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
-  const version = await db.noteVersion.findFirst({
-    where: { userId, noteId, id: versionId },
-  });
+  const version = await findNoteVersion(userId, noteId, versionId);
   if (!version) throw deps.versionNotFound();
 
   await deps.maybeSnapshotVersion(userId, note);
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: {
-      title: version.title,
-      blocks: JSON.stringify(
-        deps.cloneBlocksWithNewIds(parseJsonBlocks(version.blocks)),
-      ),
-      updatedAt: new Date(),
-    },
+  const updated = await restoreNoteVersion(note.id, {
+    title: version.title,
+    blocks: JSON.stringify(
+      deps.cloneBlocksWithNewIds(parseJsonBlocks(version.blocks)),
+    ),
+    updatedAt: new Date(),
   });
   return deps.noteResponse(userId, updated);
 }
