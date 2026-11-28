@@ -10,6 +10,7 @@ import {
 } from "@/lib/gaia/spaced-repetition";
 import type { Note } from "@prisma/client";
 import { z } from "zod";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type ReviewDependencies = {
   validationError: (message: string, issues?: { path: string; message: string }[]) => Error;
@@ -17,16 +18,6 @@ type ReviewDependencies = {
   noteResponse: (userId: string, note: Note) => Promise<GaiaNoteResponse>;
 };
 
-function parseOrThrow<T>(schema: z.ZodType<T>, input: unknown, validationError: ReviewDependencies["validationError"]): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
-    );
-  }
-  return parsed.data;
-}
 
 const reviewInputSchema = z.object({
   quality: z.number().int().min(0).max(3),
