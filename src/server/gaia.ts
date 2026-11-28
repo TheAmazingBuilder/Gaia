@@ -149,10 +149,10 @@ import type { GaiaListQuery } from "@/modules/notes/types";
 export type { GaiaListQuery } from "@/modules/notes/types";
 import { restoreVersionCommand } from "@/modules/notes/services/versions";
 import {
-  moveNoteToMasteryCommand,
-  reviewNoteCommand,
-  scheduleNoteCommand,
-} from "@/modules/notes/services/review";
+  moveNoteToMastery,
+  reviewNote,
+  scheduleNote,
+} from "@/server/gaia/notes-review";
 import {
   excerptOf,
   gaiaBlocksInputSchema,
@@ -165,12 +165,7 @@ import {
   type GaiaRefKind,
 } from "@/lib/gaia/content";
 import { listRefs as listRefsRaw, type GaiaRefHit } from "@/lib/gaia/refs";
-import {
-  isMasteryLevel,
-  isTimePeriod,
-  periodOf,
-  type TimePeriod,
-} from "@/lib/gaia/spaced-repetition";
+
 import { createNoteSnapshotIfNeeded } from "@/modules/notes/services/snapshots";
 import { normalizeProperties } from "@/modules/notes/normalization";
 import { findActiveNote, loadFolders, loadTags } from "@/modules/notes/repositories/notes";
@@ -296,52 +291,7 @@ export async function duplicateNote(
 
 /* ── Phase 1 — Memory : révision espacée + statistiques ────────────────── */
 
-export async function reviewNote(
-  userId: string,
-  noteId: string,
-  input: unknown,
-): Promise<GaiaNoteResponse> {
-  return reviewNoteCommand(userId, noteId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
-}
-
-/** Manual mastery move is a reclassification, not a spaced-repetition review. */
-export async function moveNoteToMastery(
-  userId: string,
-  noteId: string,
-  input: unknown,
-): Promise<GaiaNoteResponse> {
-  return moveNoteToMasteryCommand(userId, noteId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
-}
-
-/** Reschedule a note without changing mastery, ease factor or review count. */
-export async function scheduleNote(
-  userId: string,
-  noteId: string,
-  input: unknown,
-): Promise<GaiaNoteResponse> {
-  return scheduleNoteCommand(userId, noteId, input, {
-    validationError,
-    noteNotFound: NOTE_NOT_FOUND,
-    noteResponse: async (ownerId, note) => {
-      const [folders, tags] = await Promise.all([loadFolders(ownerId), loadTags(ownerId)]);
-      return noteResponse(ownerId, note, folders, tags);
-    },
-  });
-}
+export { reviewNote, moveNoteToMastery, scheduleNote };
 
 /* ── Phase 2 — Knowledge graph ─────────────────────────────────────────── */
 
