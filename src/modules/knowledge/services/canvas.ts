@@ -5,6 +5,7 @@ import {
 } from "@/modules/knowledge/schemas";
 import type { GaiaCanvasDTO, GaiaCanvasItemDTO } from "@/modules/knowledge/types";
 import type { KnowledgeCanvas } from "@prisma/client";
+import { parseOrThrow } from "@/shared/validation/parse-or-throw";
 
 type CanvasDependencies = {
   validationError: (
@@ -14,23 +15,6 @@ type CanvasDependencies = {
   canvasNotFound: () => Error;
 };
 
-function parseCanvasInput<T>(
-  schema: { safeParse(input: unknown): { success: true; data: T } | { success: false; error: { issues: Array<{ path: PropertyKey[]; message: string }> } } },
-  input: unknown,
-  validationError: CanvasDependencies["validationError"],
-): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) {
-    throw validationError(
-      "Some fields are invalid.",
-      parsed.error.issues.map((issue) => ({
-        path: issue.path.map(String).join("."),
-        message: issue.message,
-      })),
-    );
-  }
-  return parsed.data;
-}
 
 function safeJsonParse(raw: string | null | undefined): unknown {
   if (!raw) return null;
@@ -86,7 +70,7 @@ export async function createCanvasCommand(
   input: unknown,
   deps: CanvasDependencies,
 ): Promise<{ canvas: GaiaCanvasDTO }> {
-  const parsed = parseCanvasInput(canvasInputSchema, input, deps.validationError);
+  const parsed = parseOrThrow(canvasInputSchema, input, deps.validationError);
   const row = await db.knowledgeCanvas.create({
     data: {
       userId,
