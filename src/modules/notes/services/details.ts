@@ -1,6 +1,6 @@
-import { db } from "@/shared/database/client";
 import type { GaiaNoteResponse } from "@/modules/notes/types";
 import type { Note } from "@prisma/client";
+import { updateNoteLastViewed } from "@/modules/notes/repositories/notes";
 
 type GetNoteDependencies = {
   noteNotFound: () => Error;
@@ -21,10 +21,7 @@ export async function getNoteQuery(
   const note = await deps.findActiveNote(userId, noteId);
   if (!note) throw deps.noteNotFound();
 
-  const updated = await db.note.update({
-    where: { id: note.id },
-    data: { lastViewedAt: new Date() },
-  });
+  const updated = await updateNoteLastViewed(note.id);
 
   return deps.noteResponse(userId, updated);
 }
