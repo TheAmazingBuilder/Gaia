@@ -88,15 +88,27 @@ import {
 } from "@/modules/files/services/queries";
 export type { ListFilesParams } from "@/modules/files/services/queries";
 
-import type { GaiaKnowledgeTimelineMonth, GaiaNoteRelationDTO } from "@/modules/knowledge/types";
-export type { GaiaKnowledgeTimelineMonth, GaiaNoteRelationDTO } from "@/modules/knowledge/types";
-export type { GaiaNoteRelationDTO } from "@/modules/knowledge/types";
+import type {
+  GaiaKnowledgeTimelineMonth,
+  GaiaNoteRelationDTO,
+  GaiaNoteLinksResponse,
+  GaiaLinkSuggestion,
+} from "@/modules/knowledge/types";
+export type {
+  GaiaKnowledgeTimelineMonth,
+  GaiaNoteRelationDTO,
+  GaiaNoteLinkItem,
+  GaiaUnlinkedMention,
+  GaiaNoteLinksResponse,
+  GaiaLinkSuggestion,
+} from "@/modules/knowledge/types";
 import {
   createNoteRelationCommand,
   deleteNoteRelationCommand,
   listNoteRelationsQuery,
 } from "@/modules/knowledge/services/relations";
 import { getKnowledgeTimelineQuery } from "@/modules/knowledge/services/timeline";
+import { getNoteLinksQuery } from "@/modules/knowledge/services/links";
 import { db } from "@/lib/db";
 import {
   purgeNoteCommand,
@@ -361,33 +373,6 @@ export type GaiaFolderDTO = NoteFolder & { noteCount: number };
 export type GaiaTagDTO = NoteTag & { noteCount: number };
 
 /* ── Module 2 — Knowledge Management System : types de réponse ─────── */
-
-export type GaiaNoteLinkItem = {
-  id: string;
-  title: string;
-  via: "ref" | "relation";
-  relationType?: string;
-};
-
-export type GaiaUnlinkedMention = {
-  id: string;
-  title: string;
-  snippet: string;
-};
-
-export type GaiaNoteLinksResponse = {
-  outgoing: GaiaNoteLinkItem[];
-  backlinks: GaiaNoteRow[];
-  unlinkedMentions: GaiaUnlinkedMention[];
-  relations: GaiaNoteRelationDTO[];
-};
-
-export type GaiaLinkSuggestion = {
-  id: string;
-  title: string;
-  score: number;
-  sharedWords: string[];
-};
 
 export type GaiaSmartCollectionDTO = {
   id: string;
@@ -1620,100 +1605,15 @@ export async function getNoteLinks(
   userId: string,
   noteId: string,
 ): Promise<GaiaNoteLinksResponse> {
-  const note = await findActiveNote(userId, noteId);
-  if (!note) throw NOTE_NOT_FOUND();
-  const [folders, tags, relations, allNotes] = await Promise.all([
-    loadFolders(userId),
-    loadTags(userId),
-    loadRelations(userId),
-    db.note.findMany({ where: { userId, deletedAt: null } }),
-  ]);
-
-  // Outgoing: ref blocks (NOTE) + relations.
-  const outgoing: GaiaNoteLinkItem[] = [];
-  const seenOutgoing = new Set<string>();
-  for (const block of flattenBlocks(parseJsonBlocks(note.blocks))) {
-    if (block.type !== "ref" || block.ref?.kind !== "NOTE") continue;
-    const target = allNotes.find((n) => n.id === block.ref?.id);
-    if (!target || target.id === noteId || seenOutgoing.has(target.id)) continue;
-    seenOutgoing.add(target.id);
-    outgoing.push({
-      id: target.id,
-      title: target.title === "" ? "Untitled note" : target.title,
-      via: "ref",
-    });
-  }
-  const myRelations = relations.filter((r) => r.fromNoteId === noteId);
-  for (const rel of myRelations) {
-    const target = allNotes.find((n) => n.id === rel.toNoteId);
-    if (!target || seenOutgoing.has(target.id)) continue;
-    seenOutgoing.add(target.id);
-    outgoing.push({
-      id: target.id,
-      title: target.title === "" ? "Untitled note" : target.title,
-      via: "relation",
-      relationType: rel.type,
-    });
-  }
-
-  // Backlinks: every other note with a ref block to this note.
-  const backlinks = allNotes
-    .filter(
-      (n) =>
-        n.id !== noteId &&
-        flattenBlocks(parseJsonBlocks(n.blocks)).some(
-          (b) => b.type === "ref" && b.ref?.kind === "NOTE" && b.ref.id === noteId,
-        ),
-    )
-    .map((n) => toRow(n, folders, tags));
-
-  // Unlinked mentions: the title appears in another note's text (title or
-  // body) without any link to this note. Short titles (< 3 chars) are
-  // skipped — they would match almost everything.
-  const unlinkedMentions: GaiaUnlinkedMention[] = [];
-  const title = note.title.trim();
-  if (title.length >= 3) {
-    const needle = title.toLowerCase();
-    const linkedIds = new Set([
-      ...backlinks.map((b) => b.id),
-      ...outgoing.map((o) => o.id),
-    ]);
-    for (const other of allNotes) {
-      if (other.id === noteId || linkedIds.has(other.id)) continue;
-      const blocks = parseJsonBlocks(other.blocks);
-      const hayTitle = other.title.toLowerCase();
-      const hayText = textOfBlocks(blocks).toLowerCase();
-      if (!hayTitle.includes(needle) && !hayText.includes(needle)) continue;
-      unlinkedMentions.push({
-        id: other.id,
-        title: other.title === "" ? "Untitled note" : other.title,
-        snippet: hayText.includes(needle)
-          ? searchSnippet(blocks, needle)
-          : excerptOf(blocks),
-      });
-      if (unlinkedMentions.length >= 20) break;
-    }
-  }
-
-  // Relations (both directions) with the other note's title.
-  const titles = await loadNoteTitles(
-    userId,
-    relations
-      .filter((r) => r.fromNoteId === noteId || r.toNoteId === noteId)
-      .map((r) => (r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId)),
-  );
-  const relationDTOs = relations
-    .filter((r) => r.fromNoteId === noteId || r.toNoteId === noteId)
-    .map((r) =>
-      relationToDTO(
-        r,
-        r.fromNoteId === noteId ? "outgoing" : "incoming",
-        titles.get(r.fromNoteId === noteId ? r.toNoteId : r.fromNoteId) ??
-          "Untitled note",
-      ),
-    );
-
-  return { outgoing, backlinks, unlinkedMentions, relations: relationDTOs };
+  return getNoteLinksQuery(userId, noteId, {
+    findActiveNote,
+    loadFolders,
+    loadTags,
+    loadRelations,
+    loadNoteTitles,
+    toRow,
+    noteNotFound: NOTE_NOT_FOUND,
+  });
 }
 
 // ── K14 — Suggestions de liens ────────────────────────────────────────
