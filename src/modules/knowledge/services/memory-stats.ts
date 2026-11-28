@@ -1,4 +1,4 @@
-import { db } from "@/shared/database/client";
+import { loadMemoryStatsNotes } from "@/modules/knowledge/repositories/memory-stats";
 import { isMasteryLevel, MASTERY_VALUE } from "@/lib/gaia/spaced-repetition";
 import type {
   GaiaMemoryHeatmapDay,
@@ -19,17 +19,7 @@ import type { MasteryLevel } from "@/lib/gaia/spaced-repetition";
 export async function getMemoryStatsQuery(
   userId: string,
 ): Promise<GaiaMemoryStatsResponse> {
-  const notes = await db.note.findMany({
-    where: { userId, deletedAt: null },
-    select: {
-      id: true,
-      title: true,
-      mastery: true,
-      lastReviewedAt: true,
-      nextReviewAt: true,
-      createdAt: true,
-    },
-  });
+  const notes = await loadMemoryStatsNotes(userId);
   const now = new Date();
   const totalNotes = notes.length;
 
