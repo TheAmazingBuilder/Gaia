@@ -1564,24 +1564,6 @@ export async function deleteNoteRelation(
   });
 }
 
-function relationToDTO(
-  rel: NoteRelation,
-  direction: "outgoing" | "incoming",
-  otherTitle: string,
-): GaiaNoteRelationDTO {
-  const otherNoteId = direction === "outgoing" ? rel.toNoteId : rel.fromNoteId;
-  return {
-    id: rel.id,
-    fromNoteId: rel.fromNoteId,
-    toNoteId: rel.toNoteId,
-    type: rel.type,
-    direction,
-    otherNoteId,
-    otherTitle,
-    createdAt: rel.createdAt.toISOString(),
-  };
-}
-
 async function loadRelations(userId: string): Promise<NoteRelation[]> {
   return db.noteRelation.findMany({
     where: { userId },
